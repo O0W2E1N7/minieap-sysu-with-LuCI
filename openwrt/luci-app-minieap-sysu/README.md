@@ -13,7 +13,6 @@ v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮�
 - 操作结果提示只显示一次，刷新整页后消失，可用右侧 × 手动关闭。
 - 修正 `luci.util.pcdata()` 旧接口调用，改用 `luci.xml.pcdata()`。
 - 保存说明为：“仅保存设置”需要手动重启认证。“保存并重新认证”立即应用设置。
-- 连续连接计时及认证启动脚本保持 v1.5.0 的行为。
 
 ## 连续连接计时
 
@@ -29,16 +28,15 @@ v1.5.1 已随 [luci-v1.5.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/r
 
 - **LuCI → 服务 → 校园网认证**：保存 NetID/密码，同一账号密码留空时保留原值；更换账号必须填写新密码，前后端均校验。
 - 启动、停止、重新认证，以及开机启动开关。
-- 分别显示服务运行、eth0 网线连接、WAN IPv4 地址和 WAN 接口状态。
+- 分别显示服务运行、校园网网口链路、WAN IPv4 地址和 WAN 接口状态。
 - 默认每 5 秒刷新状态及日志，可暂停或手动刷新；后台标签页暂停定时请求，不覆盖正在填写的账号、密码和开机启动选项。
 - 显示最近 200 条 MiniEAP 系统日志；日志使用纯文本显示，保留原始账号密码和 DIAG 内容，并可下载全部认证日志。
 - “仅保存设置”不重启服务；“保存并重新认证”在保存成功后提交重启请求。重启失败时明确提示设置已经保存。
 - 提交后禁用按钮，服务端使用单次操作凭证和进程间锁，完成后跳转到 GET 页面；同一表单的重复请求不会重复执行认证操作。
 
-实测设备为 GL-MT3600BE，GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT，ARM64，校园网口为 `eth0`。
-校园网认证已在该环境成功，用户已确认旧版修正缓存后页面保存正常。v1.4.0 新增功能已通过
-本地 Lua 5.1 模拟环境和 JavaScript 交互回归测试，尚未在该路由器实机验证；其他固件与
-其他网卡组合仍需验证。v1.5.1 已通过本地逻辑及启动脚本测试，等待路由器实测。
+实测设备为 GL-MT3600BE，GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT，ARM64。
+校园网认证与旧版页面保存已在该环境确认可用；v1.4.0 及之后的新功能只经过本地 Lua 5.1
+模拟环境与 JavaScript 交互回归测试，尚未在该路由器实机验证，其他固件与网卡组合仍需验证。
 
 此目录不会改写上游认证算法，也不提供预编译认证内核。LuCI 页面本身不依赖 CPU 架构，
 但认证程序必须为设备架构和固件编译。需要旧版 Lua LuCI、`luci.jsonc`、nixio 和 `/sbin/logread`；
@@ -60,23 +58,33 @@ v1.5.1 已随 [luci-v1.5.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/r
 
 ## 安装页面
 
-在电脑上检出本仓库后，用 Python 3 打包：
+两种方式任选其一：直接下载现成安装包，或从源码自行打包。现成包在
+[Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)，下载
+`minieap-sysu-luci-v1.5.1.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
+
+从源码打包（Python 3）：
 
 ```sh
 python3 openwrt/luci-app-minieap-sysu/build_bundle.py
 ```
 
-输出到本目录的 `dist/minieap-sysu-luci.tar.gz`，旁边附 SHA256 文件。
-Windows 上可以将 `python3` 换成可用的 `python`。上传到路由器：
+输出到 `openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz`，旁边附同名 SHA256 文件。
+Windows 上可以将 `python3` 换成可用的 `python`。
+
+上传到路由器（连同 `.sha256` 一起传，便于校验）：
 
 ```sh
-scp -O openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz root@192.168.8.1:/tmp/
+scp -O openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz \
+       openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz.sha256 root@192.168.8.1:/tmp/
 ```
 
-在路由器 SSH 中安装：
+在路由器 SSH 中安装。先校验包的 SHA256，通过后再解压执行；从 Release 下载时文件名带版本号，
+把下面的文件名换成实际下载的名字即可：
 
 ```sh
-mkdir -p /tmp/minieap-luci-v1.5.1
+cd /tmp &&
+sha256sum -c minieap-sysu-luci.tar.gz.sha256 &&
+mkdir -p /tmp/minieap-luci-v1.5.1 &&
 tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.5.1 &&
 sh /tmp/minieap-luci-v1.5.1/install.sh
 ```
@@ -102,7 +110,7 @@ sh /tmp/minieap-luci-v1.5.1/install.sh
 
 ## 尚未配置服务时
 
-先按仓库根目录说明，为设备编译并验证 MiniEAP 可执行文件。确认网卡确实是 `eth0`，
+先按仓库根目录说明，为设备编译并验证 MiniEAP 可执行文件。确认网卡配置与上文说明一致，
 并停止其他认证客户端。下面操作只适用于首次部署，已有可用配置时不要覆盖。
 
 将可执行文件传至 `/tmp/minieap`，将本目录的 `runtime/` 传至 `/tmp/minieap-runtime/`。
