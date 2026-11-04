@@ -18,6 +18,7 @@ typedef struct _state_mach_priv {
     int auth_round; // Current authentication round
     int fail_count;
     int state_alarm_id;
+    int retry_alarm_id; // Pending retry-after-failure alarm, 0 when none
     uint8_t local_mac[6];
     uint8_t server_mac[6];
     EAP_STATE state;
@@ -61,6 +62,16 @@ static void disable_state_watchdog();
 
 static void eap_state_machine_reset() {
     disable_state_watchdog();
+    /*
+     * A failure may have queued a retry while the following server-initiated
+     * request already authenticated us. Leaving that alarm armed makes it
+     * restart authentication later on, which the server rejects as a duplicate
+     * login, re-arming the alarm again: an endless 30-second loop.
+     */
+    if (PRIV->retry_alarm_id != 0) {
+        unschedule_alarm(PRIV->retry_alarm_id);
+        PRIV->retry_alarm_id = 0;
+    }
     free_frame(&PRIV->last_recv_frame);
     PRIV->state_last_count = 0;
     PRIV->state = EAP_STATE_UNKNOWN; // If called by a transition func, this won't take effect
@@ -194,8 +205,29 @@ static RESULT state_mach_process_success(ETH_EAP_FRAME* frame) {
 }
 
 static void restart_auth(void* unused) {
+    PRIV->retry_alarm_id = 0;
+    /*
+     * Reached only through a queued retry. If the session is already
+     * authenticated, this alarm is stale: starting over would drop us offline
+     * for nothing and let the server reject us for logging in twice.
+     */
+    if (PRIV->state == EAP_STATE_SUCCESS) {
+        return;
+    }
     eap_state_machine_reset();
     switch_to_state(EAP_STATE_START_SENT, NULL);
+}
+
+/*
+ * Keep at most one retry queued: two failures in a row would otherwise leave
+ * the first alarm unreachable (its id is gone), and it would fire later on top
+ * of a session that may already be authenticated.
+ */
+static void schedule_retry(int secs) {
+    if (PRIV->retry_alarm_id != 0) {
+        unschedule_alarm(PRIV->retry_alarm_id);
+    }
+    PRIV->retry_alarm_id = schedule_alarm(secs, restart_auth, NULL);
 }
 
 static RESULT state_mach_process_failure(ETH_EAP_FRAME* frame) {
@@ -205,7 +237,7 @@ static RESULT state_mach_process_failure(ETH_EAP_FRAME* frame) {
         if (_cfg->restart_on_logoff) {
             /* Wait for this state transition to FAILURE finish */
             PR_WARN("认证掉线，稍后将重新开始认证……");
-            schedule_alarm(1, restart_auth, NULL);
+            schedule_retry(1);
         } else {
             PR_ERR("认证掉线，正在退出……");
             exit(EXIT_FAILURE);
@@ -217,7 +249,7 @@ static RESULT state_mach_process_failure(ETH_EAP_FRAME* frame) {
             exit(EXIT_FAILURE);
         } else {
             PR_WARN("认证失败 %d 次，将在 %d 秒或服务器请求后重试……", PRIV->fail_count, _cfg->wait_after_fail_secs);
-            schedule_alarm(_cfg->wait_after_fail_secs, restart_auth, NULL);
+            schedule_retry(_cfg->wait_after_fail_secs);
         }
     }
     return SUCCESS;
