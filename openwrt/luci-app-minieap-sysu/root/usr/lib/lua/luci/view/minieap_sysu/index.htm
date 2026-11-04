@@ -25,24 +25,70 @@
 #campus-page .campus-refresh-row input[type="checkbox"] {
   margin: 0;
 }
-#campus-page .campus-dismiss { float: right; margin-left: 16px; border: 0; background: transparent; color: inherit; font-size: 22px; cursor: pointer; }
+#campus-page .campus-alerts { margin: 12px 0 0; }
+#campus-page .campus-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#campus-page .campus-alert-text { flex: 1 1 auto; }
+#campus-page .campus-alert-link { flex: none; white-space: nowrap; }
+#campus-page .campus-dismiss {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  line-height: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+#campus-page .campus-dismiss:hover { background: rgba(127, 127, 127, .28); }
+#campus-page .campus-dismiss:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+#campus-page .campus-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px 20px;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(127, 127, 127, .35);
+  border-radius: 8px;
+}
+#campus-page .campus-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#campus-page .campus-metric-label { font-size: .85em; opacity: .75; }
+#campus-page .campus-metric strong { font-size: 1.1em; overflow-wrap: anywhere; }
+#campus-page .campus-busy { opacity: .65; cursor: progress; }
+#campus-page .campus-fold-row { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
 #campus-page [hidden] { display: none !important; }
 </style>
 <% local esc = require("luci.xml").pcdata
    local url = require("luci.dispatcher").build_url("admin", "services", "minieap_sysu") %>
 <div class="cbi-map" id="campus-page" data-status-url="<%=url%>/status">
   <h2>校园网认证</h2>
-  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.5.1</div>
-  <% if message then %><div id="campus-success" class="alert-message success" role="status"><button type="button" class="campus-dismiss" data-dismiss="campus-success" aria-label="关闭提示">×</button><%=esc(message)%></div><% end %>
-  <% if error_message then %><div id="campus-warning" class="alert-message warning" role="alert"><button type="button" class="campus-dismiss" data-dismiss="campus-warning" aria-label="关闭提示">×</button><%=esc(error_message)%></div><% end %>
+  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.5.2</div>
+  <div id="campus-alerts" class="campus-alerts">
+    <% if message then %>
+    <div id="campus-success" class="alert-message success campus-alert" role="status" data-autodismiss="6000"><span class="campus-alert-text"><%=esc(message)%></span><a class="campus-alert-link" href="#campus-logs">查看日志 ↓</a><button type="button" class="campus-dismiss" data-dismiss="campus-success" aria-label="关闭提示">×</button></div>
+    <% end %>
+    <% if error_message then %>
+    <div id="campus-warning" class="alert-message warning campus-alert" role="alert"><span class="campus-alert-text"><%=esc(error_message)%></span><button type="button" class="campus-dismiss" data-dismiss="campus-warning" aria-label="关闭提示">×</button></div>
+    <% end %>
+  </div>
   <p id="campus-state-error" role="status"><%=esc(state.error or "")%></p>
   <p id="campus-operation" role="status" aria-live="polite"></p>
+
+  <div class="campus-summary">
+    <div class="campus-metric"><span class="campus-metric-label">校园网认证</span><strong id="campus-connection"><%=esc(state.connection_text or "等待下一次认证")%></strong></div>
+    <div class="campus-metric"><span class="campus-metric-label">本次已连接</span><strong id="campus-duration" data-seconds="<%=state.connected_seconds or ""%>">—</strong></div>
+    <div class="campus-metric"><span class="campus-metric-label">认证服务</span><strong id="campus-running"><%=state.running and "运行中" or "未运行"%></strong></div>
+    <div class="campus-metric"><span class="campus-metric-label">开机启动</span><span id="campus-autostart"><%=state.enabled and "已开启" or "未开启"%></span></div>
+  </div>
+
   <fieldset class="cbi-section">
-    <legend>当前状态</legend>
-    <p>校园网认证：<strong id="campus-connection"><%=esc(state.connection_text or "等待下一次认证")%></strong></p>
-    <p>本次已连接：<strong id="campus-duration" data-seconds="<%=state.connected_seconds or ""%>">—</strong></p>
-    <p>认证服务：<strong id="campus-running"><%=state.running and "运行中" or "未运行"%></strong></p>
-    <p>开机启动：<span id="campus-autostart"><%=state.enabled and "已开启" or "未开启"%></span></p>
+    <legend>网络状态</legend>
     <p>校园网网卡：<span id="campus-nic"><%=esc(state.nic)%></span>　网线连接：<span id="campus-carrier"><%=state.carrier and "已连接" or "未检测到连接"%></span></p>
     <p>WAN 地址：<span id="campus-address"><%=esc(state.address ~= "" and state.address or "尚未取得 IPv4 地址")%></span></p>
     <p>WAN 状态：<span id="campus-wan"><%=state.wan_up and "已连接" or "未连接"%></span></p>
@@ -77,6 +123,7 @@
   <fieldset class="cbi-section">
     <legend>最近认证日志</legend>
     <p class="campus-refresh-row">最近 200 条认证日志
+      <label class="campus-fold-row"><input type="checkbox" id="campus-fold" checked="checked" /> 折叠重复日志</label>
       <a class="cbi-button" href="<%=url%>/logs" download="minieap-authentication.log">下载全部认证日志</a>
     </p>
     <p id="campus-log-message"><%=esc(logs_message or "")%></p>
@@ -88,14 +135,36 @@
   'use strict';
   var page = document.getElementById('campus-page');
   var busy = false, loading = false, timer, activeRequest;
+  var POLL_MS = 5000, FAST_MS = 2000, fastPolls = 0, reauthPending = false;
   function el(id) { return document.getElementById('campus-' + id); }
+  function text(id, value) { el(id).textContent = value || ''; }
+
+  // 1/2/5: notices use a flex row, a 32px hit target, and a self-dismissing success banner.
   var dismissButtons = page.querySelectorAll('button[data-dismiss]');
   for (var d = 0; d < dismissButtons.length; d++) {
     dismissButtons[d].addEventListener('click', function () {
-      document.getElementById(this.getAttribute('data-dismiss')).hidden = true;
+      var target = document.getElementById(this.getAttribute('data-dismiss'));
+      if (target) target.hidden = true;
     });
   }
-  function text(id, value) { el(id).textContent = value || ''; }
+  var successBox = el('success');
+  var dismissDelay = successBox && typeof successBox.getAttribute === 'function'
+    ? Number(successBox.getAttribute('data-autodismiss') || 0) : 0;
+  if (dismissDelay > 0 && !successBox.hidden) {
+    var dismissTimer = setTimeout(function () { successBox.hidden = true; }, dismissDelay);
+    successBox.addEventListener('mouseenter', function () { clearTimeout(dismissTimer); });
+    successBox.addEventListener('mouseleave', function () {
+      dismissTimer = setTimeout(function () { successBox.hidden = true; }, 3000);
+    });
+  }
+
+  // 4: drop one-shot result tokens so a refresh or a shared link stays clean.
+  try {
+    if (window.history && window.history.replaceState && window.location && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  } catch (ignoreHistory) { /* older browsers keep the URL as-is */ }
+
   var connectedSeconds = null, connectedAt = 0;
   function nowSeconds() { return performance.now() / 1000; }
   function drawDuration() {
@@ -110,9 +179,60 @@
   var initialSeconds = el('duration').getAttribute('data-seconds');
   syncDuration(initialSeconds === '' ? null : Number(initialSeconds));
   setInterval(drawDuration, 1000);
+
+  // 8: a re-authentication was submitted, so show progress and poll faster until it settles.
+  function readFlag(key) {
+    try { return window.sessionStorage && window.sessionStorage.getItem(key) === '1'; } catch (e) { return false; }
+  }
+  function writeFlag(key, value) {
+    try {
+      if (!window.sessionStorage) return;
+      if (value) window.sessionStorage.setItem(key, '1'); else window.sessionStorage.removeItem(key);
+    } catch (e) { /* storage may be disabled */ }
+  }
+  reauthPending = readFlag('campus-reauth');
+  if (reauthPending) {
+    fastPolls = 15;
+    text('connection', '正在重新认证…');
+    text('refresh-note', '已提交重新认证，正在确认结果');
+  }
+
+  // 10: fold runs of identical messages so real events survive the heartbeat noise.
+  function foldLogs(body) {
+    var lines = body.split('\n'), out = [], current = null, count = 0;
+    function flush() {
+      if (!current) return;
+      out.push(current.line);
+      if (count > 1) out.push('   ↳ 与上一条相同，共 ' + count + ' 次');
+      current = null; count = 0;
+    }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line === '') { flush(); out.push(line); continue; }
+      var mark = line.lastIndexOf('] ');
+      var key = mark >= 0 ? line.slice(mark + 2) : line;
+      if (current && key === current.key) { count++; continue; }
+      flush(); current = {line: line, key: key}; count = 1;
+    }
+    flush();
+    return out.join('\n');
+  }
+  var rawLogs = el('logs').textContent;
+  function renderLogs(body) {
+    rawLogs = body;
+    var log = el('logs');
+    var atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+    var foldToggle = el('fold');
+    var next = (foldToggle && foldToggle.checked) ? foldLogs(body) : body;
+    if (log.textContent !== next) { log.textContent = next; if (atEnd) log.scrollTop = log.scrollHeight; }
+  }
+  var foldControl = el('fold');
+  if (foldControl) foldControl.addEventListener('change', function () { renderLogs(rawLogs); });
+
   function schedule() {
     clearTimeout(timer);
-    if (!busy && !document.hidden && el('auto').checked) timer = setTimeout(refresh, 5000);
+    var wait = reauthPending && fastPolls > 0 ? FAST_MS : POLL_MS;
+    if (!busy && !document.hidden && el('auto').checked) timer = setTimeout(refresh, wait);
   }
   function refresh() {
     clearTimeout(timer);
@@ -140,9 +260,14 @@
         text('wan', s.wan_up ? '已连接' : '未连接');
         text('state-error', s.error);
         text('log-message', data.logs_message);
-        var log = el('logs'), atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
-        if (log.textContent !== data.logs) { log.textContent = data.logs; if (atEnd) log.scrollTop = log.scrollHeight; }
+        renderLogs(data.logs);
         text('refresh-note', '更新于 ' + new Date().toLocaleTimeString());
+        if (reauthPending) {
+          if (fastPolls > 0) fastPolls--;
+          if (fastPolls === 0 || (s.running && typeof s.connected_seconds === 'number')) {
+            reauthPending = false; writeFlag('campus-reauth', false);
+          }
+        }
       } catch (e) { fail(); return; }
       finish();
     };
@@ -153,6 +278,8 @@
   el('refresh').addEventListener('click', refresh);
   el('auto').addEventListener('change', schedule);
   document.addEventListener('visibilitychange', schedule);
+  if (foldControl) renderLogs(rawLogs);
+
   var originalUser = el('user').value;
   function validateAccount() {
     var changed = el('user').value !== originalUser;
@@ -162,6 +289,8 @@
   }
   el('user').addEventListener('input', validateAccount);
   el('password').addEventListener('input', validateAccount);
+
+  // 7: remember where the user was, the POST + 303 reload jumps back to the top otherwise.
   var forms = page.querySelectorAll('form.campus-action-form');
   for (var i = 0; i < forms.length; i++) {
     (function (form) {
@@ -182,10 +311,29 @@
         if (activeRequest) activeRequest.abort();
         var all = page.querySelectorAll('button');
         for (var k = 0; k < all.length; k++) all[k].disabled = true;
+        // 6: show that the click registered instead of only greying the button out.
+        if (submitter) {
+          submitter.textContent = '提交中…';
+          if (typeof submitter.setAttribute === 'function') submitter.setAttribute('aria-busy', 'true');
+        }
+        writeFlag('campus-reauth', submitter && submitter.value === 'save_restart');
+        try {
+          if (window.sessionStorage) window.sessionStorage.setItem('campus-scroll', String(window.scrollY || 0));
+        } catch (ignoreScroll) { /* storage may be disabled */ }
         text('operation', '正在处理，请勿重复提交。若长时间未返回，请重新打开校园网认证页面检查结果。');
       });
     })(forms[i]);
   }
+
+  // 7: restore the previous scroll position after the redirect.
+  try {
+    var savedScroll = window.sessionStorage && window.sessionStorage.getItem('campus-scroll');
+    if (savedScroll !== null && savedScroll !== undefined) {
+      window.sessionStorage.removeItem('campus-scroll');
+      if (window.scrollTo) window.scrollTo(0, Number(savedScroll) || 0);
+    }
+  } catch (ignoreRestore) { /* storage may be disabled */ }
+
   window.addEventListener('pageshow', function (event) { if (event.persisted) window.location.reload(); });
   schedule();
 })();

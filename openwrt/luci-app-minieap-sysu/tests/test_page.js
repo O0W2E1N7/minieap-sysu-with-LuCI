@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 // Dependency-free interaction tests for the script embedded in the Lua template.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const template = fs.readFileSync(path.join(__dirname, '../root/usr/lib/lua/luci/view/minieap_sysu/index.htm'), 'utf8');
 const script = template.match(/<script type="text\/javascript">([\s\S]*?)<\/script>/)[1];
 
-function fixture() {
+function fixture(opts = {}) {
   function element(id, value = '') {
     return {
       id, value, textContent: '', checked: false, disabled: false, required: false,
@@ -26,11 +26,13 @@ function fixture() {
   }
   const ids = ['connection', 'duration', 'success', 'dismiss', 'page', 'running', 'autostart', 'nic', 'carrier', 'address', 'wan', 'state-error',
     'auto', 'refresh', 'refresh-note', 'user', 'password', 'password-help', 'enabled', 'logs', 'log-message', 'operation'];
+  if (opts.fold) ids.push('fold');
   const els = Object.fromEntries(ids.map(id => [id, element('campus-' + id)]));
   els.user.value = 'old-user';
   els.auto.checked = true;
   els.dismiss.getAttribute = () => 'campus-success';
   els.duration.getAttribute = () => '';
+  if (opts.autodismiss) els.success.getAttribute = key => key === 'data-autodismiss' ? opts.autodismiss : null;
   const intervals = []; let clock = 0;
   const actions = ['start', 'restart', 'stop'].map(action => element('', action));
   const settings = ['save', 'save_restart'].map(action => element('', action));
@@ -47,7 +49,11 @@ function fixture() {
   document.createElement = () => element('');
   const window = element('window');
   let reloads = 0;
-  window.location = {reload() { reloads++; }};
+  window.location = opts.location || {reload() { reloads++; }};
+  if (opts.storage) window.sessionStorage = opts.storage;
+  if (opts.history) window.history = opts.history;
+  window.scrollTo = opts.scrollTo || function () {};
+  window.scrollY = opts.scrollY || 0;
   const timers = new Map(), requests = [];
   let timerID = 0;
   function XMLHttpRequest() { requests.push(this); }
@@ -58,14 +64,23 @@ function fixture() {
   vm.runInNewContext(script, {
     document, window, XMLHttpRequest, Date, JSON, Error, performance: {now: () => clock},
     setInterval(fn) { intervals.push(fn); },
-    setTimeout(fn, ms) { assert.equal(ms, 5000); timers.set(++timerID, fn); return timerID; },
+    setTimeout(fn, ms) { const id = ++timerID; timers.set(id, {fn, ms}); return id; },
     clearTimeout(id) { timers.delete(id); }
   });
-  function tick() {
-    assert.equal(timers.size, 1, 'exactly one pending poll');
-    const [id, fn] = [...timers][0]; timers.delete(id); fn();
+  function pollTimer() {
+    const polls = [...timers].filter(([, t]) => t.ms === 5000 || t.ms === 2000);
+    assert.equal(polls.length, 1, 'exactly one pending poll');
+    return polls[0];
   }
-  return {els, actions, settings, serviceForm, settingsForm, document, window, timers, requests, tick, advance(seconds) { clock += seconds * 1000; intervals.forEach(fn => fn()); }, reloads: () => reloads};
+  function tick() {
+    const [id, entry] = pollTimer(); timers.delete(id); entry.fn();
+  }
+  function fireTimer(ms) {
+    const hits = [...timers].filter(([, t]) => t.ms === ms);
+    assert.equal(hits.length, 1, 'exactly one timer at ' + ms + 'ms');
+    const [id, entry] = hits[0]; timers.delete(id); entry.fn();
+  }
+  return {els, actions, settings, serviceForm, settingsForm, document, window, timers, requests, tick, fireTimer, advance(seconds) { clock += seconds * 1000; intervals.forEach(fn => fn()); }, reloads: () => reloads};
 }
 function data(overrides = {}) {
   return JSON.stringify({state: {running: true, enabled: true, carrier: true, wan_up: true, nic: 'eth0', address: '192.0.2.10'}, logs: '<img src=x onerror=alert(1)>', ...overrides});
@@ -144,3 +159,76 @@ f = fixture(); f.els.dismiss.fire('click');
 assert.equal(f.els.success.hidden, true);
 assert.equal(f.requests.length, 0); assert.equal(f.reloads(), 0);
 console.log('PASS: connection timer resync/reset; manual notice dismissal.');
+
+
+// v1.5.2 page polish: notices, progress, scroll restore, fast poll and log folding.
+assert.match(template, /display:\s*flex[\s\S]*campus-dismiss[\s\S]*width:\s*32px/, 'notice row is a flex box with a 32px hit target');
+assert.match(template, /id="campus-alerts"[\s\S]*id="campus-success"[\s\S]*id="campus-warning"/, 'notices share one container');
+assert.match(template, /href="#campus-logs"/, 'success notice links to the log pane');
+assert.match(template, /class="campus-summary"[\s\S]*id="campus-connection"/, 'status summary sits above the settings');
+
+// The success banner dismisses itself; hovering pauses the countdown.
+let g = fixture({autodismiss: '6000'});
+assert.equal(g.els.success.hidden, undefined);
+g.fireTimer(6000);
+assert.equal(g.els.success.hidden, true);
+g = fixture({autodismiss: '6000'});
+g.els.success.fire('mouseenter');
+assert.equal([...g.timers].filter(([, t]) => t.ms === 6000).length, 0, 'hover cancels auto dismissal');
+g.els.success.fire('mouseleave');
+g.fireTimer(3000);
+assert.equal(g.els.success.hidden, true);
+
+// One-shot result tokens are removed from the address bar.
+let replacedUrl = null;
+fixture({
+  location: {pathname: '/cgi-bin/luci/admin/services/minieap_sysu', search: '?result=abc', reload() {}},
+  history: {replaceState(_, __, url) { replacedUrl = url; }}
+});
+assert.equal(replacedUrl, '/cgi-bin/luci/admin/services/minieap_sysu');
+
+function store(initial = {}) {
+  return {
+    data: Object.assign({}, initial),
+    getItem(key) { return key in this.data ? this.data[key] : null; },
+    setItem(key, value) { this.data[key] = String(value); },
+    removeItem(key) { delete this.data[key]; }
+  };
+}
+
+// Submitting reports progress, remembers the re-authentication and the scroll offset.
+const memory = store();
+g = fixture({storage: memory, scrollY: 300});
+g.settingsForm.fire('submit', {submitter: g.settings[1]});
+assert.equal(g.settings[1].textContent, '提交中…');
+assert.equal(memory.getItem('campus-reauth'), '1');
+assert.equal(memory.getItem('campus-scroll'), '300');
+
+// The stored offset is restored once, after the redirect.
+memory.setItem('campus-scroll', '420');
+let restoredTo = null;
+g = fixture({storage: memory, scrollTo(_, y) { restoredTo = y; }});
+assert.equal(restoredTo, 420);
+assert.equal(memory.getItem('campus-scroll'), null, 'restored offset is consumed');
+
+// A pending re-authentication shows its own state and polls faster until the backend settles.
+const pending = store({'campus-reauth': '1'});
+g = fixture({storage: pending});
+assert.equal(g.els.connection.textContent, '正在重新认证…');
+assert.equal([...g.timers].filter(([, t]) => t.ms === 2000).length, 1, 'fast poll while re-authenticating');
+g.tick();
+g.requests[0].respond(200, data({state: {running: true, connected_seconds: 5}}));
+assert.equal(pending.getItem('campus-reauth'), null, 'fast poll clears once the session is up');
+
+// Repeated heartbeat lines collapse, and the toggle restores the raw text.
+g = fixture({fold: true});
+g.els.fold.checked = true;
+g.tick();
+g.requests[0].respond(200, data({logs: 'a ] x\nb ] x\nc ] y'}));
+assert.match(g.els.logs.textContent, /共 2 次/);
+assert.match(g.els.logs.textContent, /c \] y/);
+g.els.fold.checked = false;
+g.els.fold.fire('change');
+assert.equal(g.els.logs.textContent, 'a ] x\nb ] x\nc ] y');
+console.log('PASS: notice layout/auto-dismiss/anchor, URL cleanup, submit progress, scroll restore, re-auth fast poll, log folding.');
+

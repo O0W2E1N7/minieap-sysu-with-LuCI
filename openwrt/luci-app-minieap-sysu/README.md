@@ -1,10 +1,19 @@
-# 至善园 MiniEAP LuCI 校园网认证页面
+﻿# 至善园 MiniEAP LuCI 校园网认证页面
 
-版本：1.5.1（本地测试版）。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
+版本：1.5.2（本地测试版）。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
 这是社区适配页面，并非锐捷、学校或 GL.iNet 官方插件。
 
 v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮行与自动刷新行间隔为 20px，
 刷新行内各项间隔为 20px；窄屏自动换行。认证及配置保存逻辑与 v1.4.0 相同。
+
+## v1.5.2 页面交互改进
+
+- 状态摘要卡片移到页首：认证状态、本次已连接时长、认证服务、开机启动四项并排显示，无需滚动即可确认结果。
+- 操作提示独立成区：成功提示 6 秒后自动消失（鼠标悬停时暂停），并提供“查看日志”锚点；警告与错误提示保持常驻。
+- 关闭按钮改为 32px 点击区，补 hover 与键盘焦点样式；提示渲染后清除地址栏里的一次性 result 参数。
+- 提交时被点击的按钮显示“提交中…”；选择“保存并重新认证”后，页面显示“正在重新认证…”并以 2 秒间隔加速刷新，拿到后端状态后恢复正常节奏。
+- 提交后保留原有滚动位置，不再跳回页首。
+- 日志默认折叠连续重复行（心跳类消息），可取消勾选查看原始内容；下载内容不受折叠影响。
 
 ## v1.5.1 本地测试
 
@@ -22,7 +31,7 @@ v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮�
 
 安装会更新并备份 `/usr/libexec/minieap-sysu-run`，新增 Lua 状态记录程序。安装不主动断开现有连接；
 安装后点击一次“重新认证”，新启动脚本才开始记录计时。记录在内存临时目录中，网页关闭后仍继续记录。
-v1.5.1 已随 [luci-v1.5.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.5.1) 发布。首次升级前的连接不补算时长。
+v1.5.2 已随 [luci-v1.5.2](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.5.2) 发布。首次升级前的连接不补算时长。
 
 ## 功能与实测范围
 
@@ -60,7 +69,7 @@ v1.5.1 已随 [luci-v1.5.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/r
 
 两种方式任选其一：直接下载现成安装包，或从源码自行打包。现成包在
 [Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)，下载
-`minieap-sysu-luci-v1.5.1.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
+`minieap-sysu-luci-v1.5.2.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
 
 从源码打包（Python 3）：
 
@@ -84,9 +93,9 @@ scp -O openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz \
 ```sh
 cd /tmp &&
 sha256sum -c minieap-sysu-luci.tar.gz.sha256 &&
-mkdir -p /tmp/minieap-luci-v1.5.1 &&
-tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.5.1 &&
-sh /tmp/minieap-luci-v1.5.1/install.sh
+mkdir -p /tmp/minieap-luci-v1.5.2 &&
+tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.5.2 &&
+sh /tmp/minieap-luci-v1.5.2/install.sh
 ```
 
 安装脚本校验包内文件，备份旧版页面与启动脚本，安装页面、连接状态记录模块和启动脚本，并清除 LuCI 临时编译缓存。
@@ -195,3 +204,4 @@ rm -f /tmp/luci-modulecache/* /tmp/luci-indexcache /tmp/luci-indexcache.*
 
 本目录新编写的 LuCI 适配代码及辅助脚本采用 [MIT](LICENSE)；上游 MiniEAP 保持仓库根目录
 的 GPL-3.0 许可证及原作者声明。感谢 undefined443/minieap-sysu、updateing/minieap 和 LuCI 项目。
+
