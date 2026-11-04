@@ -2,23 +2,24 @@
 
 [updateing/minieap](https://github.com/updateing/minieap) 的 SYSU 适配版本。
 
-## 此 fork：至善园 LuCI 校园网认证页面
+## 这个 fork 做了什么
 
-此 fork 在 [undefined443/minieap-sysu](https://github.com/undefined443/minieap-sysu)
-基础上增加了适配 GL.iNet GL-MT3600BE 原厂固件的 LuCI 页面，入口为
-**服务 → 校园网认证**。v1.4.0 增加每 5 秒自动刷新、最近认证日志、保存并重新认证、
-更换账号时的新密码校验，以及前后端防重复提交。仍可修改 NetID/密码、启动/停止/重新认证、
-设置开机启动，并查看服务、网线和 WAN IPv4 状态。认证程序的 C 源码保持上游版本。
+在 [undefined443/minieap-sysu](https://github.com/undefined443/minieap-sysu) 的基础上加了个 LuCI 页面，方便在路由器后台管理校园网认证，不用每次都在 SSH 敲命令。
 
-页面适配既有的 `minieap-sysu` procd 服务和 `/etc/minieap-sysu.conf`，
-不直接接管 netifd 版本的 `minieap` 软件包。已在 GL.iNet 4.9.0 / OpenWrt
-21.02-SNAPSHOT 的至善园环境确认旧版页面保存可用；v1.4.0 新功能通过本地回归测试，
-仍需实机验证。
+入口在 **服务 → 校园网认证**，页面功能：
 
-**[安装说明、配置方法和故障排查](openwrt/luci-app-minieap-sysu/README.md)**
+- 填 NetID 和密码，启动/停止/重新认证
+- 看服务状态、网线连接、WAN IP
+- 设置开机自动认证
+- 查最近的认证日志（自动刷新，5 秒一次）
 
-包含 `nixio.open` 文件权限与 LuCI 编译缓存的修复，以及对应回归测试。
-本仓库提供源码、空白配置示例和通用服务脚本。
+页面读写的是已有的 `minieap-sysu` 配置和 procd 服务，跟 netifd 版的 `minieap` 包互不干扰。认证程序本身的 C 代码没有改动，跟上游一致。
+
+目前只在 GL-MT3600BE（GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT）的至善园环境验证过。
+
+👉安装和详细用法见 openwrt/luci-app-minieap-sysu/README.md
+
+
 
 ## Build
 
