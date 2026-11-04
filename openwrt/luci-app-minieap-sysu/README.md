@@ -1,12 +1,14 @@
 # 至善园 MiniEAP LuCI 校园网认证页面
 
-版本：1.5.1（本地测试版）。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
+版本：1.5.2（本地测试版）。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
 这是社区适配页面，并非锐捷、学校或 GL.iNet 官方插件。
 
 v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮行与自动刷新行间隔为 20px，
 刷新行内各项间隔为 20px；窄屏自动换行。认证及配置保存逻辑与 v1.4.0 相同。
 
-## v1.5.1 本地测试
+## v1.5.2 本地测试
+
+- v1.5.2 只统一版本标注：页面、安装提示与文档全部标为 1.5.2，功能与 v1.5.1 相同。
 
 - 页面显示最近 200 条完整认证日志；删除账号密码和 DIAG 隐藏开关，不再截断单行。
 - “下载全部认证日志”导出系统缓冲区内仍保留的全部 MiniEAP 日志，按块发送，不额外保存历史文件。
@@ -23,7 +25,7 @@ v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮�
 
 安装会更新并备份 `/usr/libexec/minieap-sysu-run`，新增 Lua 状态记录程序。安装不主动断开现有连接；
 安装后点击一次“重新认证”，新启动脚本才开始记录计时。记录在内存临时目录中，网页关闭后仍继续记录。
-v1.5.1 已随 [luci-v1.5.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.5.1) 发布。首次升级前的连接不补算时长。
+v1.5.2 已随 [luci-v1.5.2](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.5.2) 发布（v1.5.1 已被其替代）。首次升级前的连接不补算时长。
 
 ## 功能与实测范围
 
@@ -38,7 +40,7 @@ v1.5.1 已随 [luci-v1.5.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/r
 实测设备为 GL-MT3600BE，GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT，ARM64，校园网口为 `eth0`。
 校园网认证已在该环境成功，用户已确认旧版修正缓存后页面保存正常。v1.4.0 新增功能已通过
 本地 Lua 5.1 模拟环境和 JavaScript 交互回归测试，尚未在该路由器实机验证；其他固件与
-其他网卡组合仍需验证。v1.5.1 已通过本地逻辑及启动脚本测试，等待路由器实测。
+其他网卡组合仍需验证。v1.5.2 已通过本地逻辑及启动脚本测试，等待路由器实测。
 
 此目录不会改写上游认证算法，也不提供预编译认证内核。LuCI 页面本身不依赖 CPU 架构，
 但认证程序必须为设备架构和固件编译。需要旧版 Lua LuCI、`luci.jsonc`、nixio 和 `/sbin/logread`；
@@ -76,9 +78,9 @@ scp -O openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz root@192.168.
 在路由器 SSH 中安装：
 
 ```sh
-mkdir -p /tmp/minieap-luci-v1.5.1
-tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.5.1 &&
-sh /tmp/minieap-luci-v1.5.1/install.sh
+mkdir -p /tmp/minieap-luci-v1.5.2
+tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.5.2 &&
+sh /tmp/minieap-luci-v1.5.2/install.sh
 ```
 
 安装脚本校验包内文件，备份旧版页面与启动脚本，安装页面、连接状态记录模块和启动脚本，并清除 LuCI 临时编译缓存。

@@ -26,6 +26,6 @@ for rel in usr/lib/lua/luci/controller/minieap_sysu.lua usr/lib/lua/luci/model/m
 done
 # Only generated LuCI caches; no service/network restart and no credential edit.
 rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* /tmp/luci-modulecache/*
-echo '已安装 v1.5.1：LuCI → 服务 → 校园网认证。请退出 LuCI 后重新登录。'
+echo '已安装 v1.5.2：LuCI → 服务 → 校园网认证。请退出 LuCI 后重新登录。'
 echo '已更新计时启动脚本；现有连接保持运行。点击一次“重新认证”后开始记录连接时长。'
 if [ -d "$backup" ]; then echo "旧版页面备份在：$backup"; fi
