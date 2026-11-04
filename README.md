@@ -17,7 +17,7 @@
 
 目前只在 GL-MT3600BE（GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT）的至善园环境验证过。
 
-👉安装和详细用法见 openwrt/luci-app-minieap-sysu/README.md
+👉 **安装和详细用法见 [openwrt/luci-app-minieap-sysu/README.md](openwrt/luci-app-minieap-sysu/README.md)**
 
 
 
