@@ -6,12 +6,14 @@
 
 此 fork 在 [undefined443/minieap-sysu](https://github.com/undefined443/minieap-sysu)
 基础上增加了适配 GL.iNet GL-MT3600BE 原厂固件的 LuCI 页面，入口为
-**服务 → 校园网认证**。可以修改 NetID/密码、启动/停止/重新认证、设置开机启动，
-并查看服务、网线和 WAN IPv4 状态。认证程序的 C 源码保持上游版本。
+**服务 → 校园网认证**。v1.4.0 增加每 5 秒自动刷新、最近认证日志、保存并重新认证、
+更换账号时的新密码校验，以及前后端防重复提交。仍可修改 NetID/密码、启动/停止/重新认证、
+设置开机启动，并查看服务、网线和 WAN IPv4 状态。认证程序的 C 源码保持上游版本。
 
 页面适配既有的 `minieap-sysu` procd 服务和 `/etc/minieap-sysu.conf`，
 不直接接管 netifd 版本的 `minieap` 软件包。已在 GL.iNet 4.9.0 / OpenWrt
-21.02-SNAPSHOT 的至善园环境确认页面保存可用；其他固件仍需验证。
+21.02-SNAPSHOT 的至善园环境确认旧版页面保存可用；v1.4.0 新功能通过本地回归测试，
+仍需实机验证。
 
 **[安装说明、配置方法和故障排查](openwrt/luci-app-minieap-sysu/README.md)**
 
