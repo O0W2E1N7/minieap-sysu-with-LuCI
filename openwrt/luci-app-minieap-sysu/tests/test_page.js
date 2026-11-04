@@ -24,11 +24,14 @@ function fixture() {
       reportValidity() { this.reported = true; }
     };
   }
-  const ids = ['page', 'running', 'autostart', 'nic', 'carrier', 'address', 'wan', 'state-error',
+  const ids = ['connection', 'duration', 'success', 'dismiss', 'page', 'running', 'autostart', 'nic', 'carrier', 'address', 'wan', 'state-error',
     'auto', 'refresh', 'refresh-note', 'user', 'password', 'password-help', 'enabled', 'logs', 'log-message', 'operation'];
   const els = Object.fromEntries(ids.map(id => [id, element('campus-' + id)]));
   els.user.value = 'old-user';
   els.auto.checked = true;
+  els.dismiss.getAttribute = () => 'campus-success';
+  els.duration.getAttribute = () => '';
+  const intervals = []; let clock = 0;
   const actions = ['start', 'restart', 'stop'].map(action => element('', action));
   const settings = ['save', 'save_restart'].map(action => element('', action));
   const serviceForm = element('service-form'), settingsForm = element('campus-settings');
@@ -36,7 +39,7 @@ function fixture() {
   settingsForm.querySelectorAll = () => settings;
   settingsForm.checkValidity = () => els.user.value !== '' && els.password.checkValidity();
   els.page.getAttribute = () => '/cgi-bin/luci/admin/services/minieap_sysu/status';
-  els.page.querySelectorAll = selector => selector === 'form.campus-action-form'
+  els.page.querySelectorAll = selector => selector === 'button[data-dismiss]' ? [els.dismiss] : selector === 'form.campus-action-form'
     ? [serviceForm, settingsForm] : [...actions, ...settings, els.refresh];
   const document = element('document');
   document.hidden = false;
@@ -53,7 +56,8 @@ function fixture() {
   XMLHttpRequest.prototype.abort = function() { this.aborted = true; if (this.onabort) this.onabort(); };
   XMLHttpRequest.prototype.respond = function(status, body) { this.status = status; this.responseText = body; this.onload(); };
   vm.runInNewContext(script, {
-    document, window, XMLHttpRequest, Date, JSON, Error,
+    document, window, XMLHttpRequest, Date, JSON, Error, performance: {now: () => clock},
+    setInterval(fn) { intervals.push(fn); },
     setTimeout(fn, ms) { assert.equal(ms, 5000); timers.set(++timerID, fn); return timerID; },
     clearTimeout(id) { timers.delete(id); }
   });
@@ -61,7 +65,7 @@ function fixture() {
     assert.equal(timers.size, 1, 'exactly one pending poll');
     const [id, fn] = [...timers][0]; timers.delete(id); fn();
   }
-  return {els, actions, settings, serviceForm, settingsForm, document, window, timers, requests, tick, reloads: () => reloads};
+  return {els, actions, settings, serviceForm, settingsForm, document, window, timers, requests, tick, advance(seconds) { clock += seconds * 1000; intervals.forEach(fn => fn()); }, reloads: () => reloads};
 }
 function data(overrides = {}) {
   return JSON.stringify({state: {running: true, enabled: true, carrier: true, wan_up: true, nic: 'eth0', address: '192.0.2.10'}, logs: '<img src=x onerror=alert(1)>', ...overrides});
@@ -127,3 +131,16 @@ f = fixture(); assert.equal(f.settingsForm.fire('submit').defaultPrevented, fals
 assert.equal(f.settingsForm.children[0].value, 'save', 'Enter defaults to save only');
 f.window.fire('pageshow', {persisted: true}); assert.equal(f.reloads(), 1);
 console.log('PASS: polling, unsaved inputs, text-only logs, scroll position, session/network failures, visibility, account validation, selected action, duplicate submission, pending-request cancellation, cached back navigation.');
+
+// Connection timer follows backend session age, not page lifetime or wall clock.
+f = fixture(); f.tick();
+f.requests[0].respond(200, data({state: {running: true, connection_text: '已认证', connected_seconds: 3661}}));
+assert.equal(f.els.duration.textContent, '01:01:01');
+f.advance(2); assert.equal(f.els.duration.textContent, '01:01:03');
+f.tick(); f.requests[1].respond(200, data({state: {running: true, connection_text: '正在连接校园网…'}}));
+f.advance(5); assert.equal(f.els.duration.textContent, '—');
+// Closing a notice does not submit a form, reload, or change the timer.
+f = fixture(); f.els.dismiss.fire('click');
+assert.equal(f.els.success.hidden, true);
+assert.equal(f.requests.length, 0); assert.equal(f.reloads(), 0);
+console.log('PASS: connection timer resync/reset; manual notice dismissal.');

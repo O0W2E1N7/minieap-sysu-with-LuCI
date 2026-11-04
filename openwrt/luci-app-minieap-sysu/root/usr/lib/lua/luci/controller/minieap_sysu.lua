@@ -2,6 +2,7 @@ module("luci.controller.minieap_sysu", package.seeall)
 
 function index()
     local page = entry({"admin", "services", "minieap_sysu"}, call("action_index"), "校园网认证", 65)
+    entry({"admin", "services", "minieap_sysu", "logs"}, call("action_logs")).leaf = true
     page.dependent = false
     page.sysauth = "root"
     page.sysauth_authenticator = "htmlauth"
@@ -29,7 +30,7 @@ end
 
 function action_index()
     local http = require "luci.http"
-    local result = require("luci.model.minieap_sysu").result(http.formvalue("result"),
+    local result = require("luci.model.minieap_sysu").consume_result(http.formvalue("result"),
         require("luci.dispatcher").context.authtoken)
     if result then
         render(result.ok and result.message or nil, not result.ok and result.message or nil)
@@ -63,4 +64,25 @@ function action_update()
     http.status(303, "See Other")
     http.header("Cache-Control", "no-store")
     http.header("Location", dispatcher.build_url("admin", "services", "minieap_sysu") .. suffix)
+end
+
+-- Inherits the parent page's root login requirement. Stream a snapshot, not logread -f.
+function action_logs()
+    local http = require "luci.http"
+    http.header("Cache-Control", "no-store")
+    local pipe, err = require("luci.model.minieap_sysu").open_logs(true)
+    if not pipe then
+        http.status(500, "Log read failed"); http.prepare_content("text/plain; charset=utf-8"); http.write(err); return
+    end
+    http.prepare_content("text/plain; charset=utf-8")
+    http.header("Content-Disposition", 'attachment; filename="minieap-authentication.log"')
+    http.header("X-Content-Type-Options", "nosniff")
+    local ok = pcall(function()
+        while true do
+            local chunk = pipe:read(4096)
+            if not chunk then break end
+            http.write(chunk)
+        end
+    end)
+    pipe:close()
 end

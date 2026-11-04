@@ -1,0 +1,31 @@
+#!/bin/sh
+# Keep procd's PID as the session identity. Capture only this child's live output.
+umask 077
+session_dir="/tmp/minieap-sysu-live-$$"
+mkdir -p "$session_dir" || exit 1
+chmod 700 "$session_dir"
+rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp"
+auth_pid=
+monitor_pid=
+cleanup() {
+    trap - EXIT INT TERM
+    [ -z "$auth_pid" ] || kill "$auth_pid" 2>/dev/null
+    [ -z "$monitor_pid" ] || kill "$monitor_pid" 2>/dev/null
+    wait 2>/dev/null
+    rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp"
+    rmdir "$session_dir" 2>/dev/null
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+while [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" != 1 ]; do sleep 1; done
+mkfifo "$session_dir/output" || exit 1
+lua /usr/libexec/minieap-sysu-monitor.lua "$session_dir" < "$session_dir/output" &
+monitor_pid=$!
+/usr/sbin/minieap-sysu --conf-file /etc/minieap-sysu.conf -b 0 > "$session_dir/output" 2>&1 &
+auth_pid=$!
+wait "$auth_pid"
+result=$?
+auth_pid=
+wait "$monitor_pid"
+monitor_pid=
+exit "$result"

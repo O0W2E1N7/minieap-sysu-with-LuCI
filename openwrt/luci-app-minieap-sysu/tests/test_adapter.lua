@@ -66,7 +66,7 @@ for _, action in ipairs({"enable", "disable", "start", "stop", "restart"}) do
 end
 local util = {}
 util.ubus = function(object)
-    if object == "service" then return {["minieap-sysu"] = {instances = {instance1 = {running = running}}}} end
+    if object == "service" then return {["minieap-sysu"] = {instances = {instance1 = {running = running, pid = 777}}}} end
     return {up = true, ["ipv4-address"] = {{address = "192.0.2.10"}}}
 end
 util.pcdata = function(s)
@@ -89,6 +89,8 @@ end
 package.loaded["luci.jsonc"] = {stringify = serialize, parse = function(s)
     local fn = loadstring("return " .. s); return fn and fn() or nil
 end}
+package.loaded["luci.xml"] = {pcdata = util.pcdata}
+util.pcdata = function() error("Deprecated escape function used") end
 local model = require "luci.model.minieap_sysu"
 local function reset()
     files = {[conf] = initial, ["/sys/class/net/eth0/carrier"] = "1\n"}
@@ -145,25 +147,58 @@ assert(not model.submit(second, "session-a", "restart")); assert(#calls == 1)
 
 local loglines = {}
 local original_popen = io.popen
+local pipe_closed = false
 io.popen = function(command)
-    assert(command == "/sbin/logread -e '[Mm]ini[Ee][Aa][Pp]' 2>/dev/null | tail -n 60")
-    local i = 0
-    return {lines = function() return function() i = i + 1; return loglines[i] end end, close = function() return true end}
+    local prefix = "/sbin/logread -e '[Mm]ini[Ee][Aa][Pp]' 2>/dev/null"
+    assert(command == prefix or command == prefix .. " | tail -n 200")
+    local selected = {}
+    for _, line in ipairs(loglines) do
+        if line:find("[Mm]ini[Ee][Aa][Pp]") then selected[#selected + 1] = line end
+    end
+    if command ~= prefix then while #selected > 200 do table.remove(selected, 1) end end
+    local i, offset = 0, 1
+    local raw = table.concat(selected, "\n") .. (#selected > 0 and "\n" or "")
+    pipe_closed = false
+    return {
+        lines = function() return function() i = i + 1; return selected[i] end end,
+        read = function(_, n) if offset > #raw then return nil end; local chunk = raw:sub(offset, offset + n - 1); offset = offset + #chunk; return chunk end,
+        close = function() pipe_closed = true; return true end
+    }
 end
-reset(); files[conf .. ".web-backup"] = "username=previous-user\npassword=previous-secret\n"
-loglines = {"daemon.info minieap-sysu[1]: old-user old$!#='\\pass previous-user previous-secret <script>bad()</script>",
-    "daemon.info other-service: unrelated", "daemon.info minieap-sysu: DIAG SERVER hex=abcdef"}
+reset()
+loglines = {"minieap-sysu: old-user previous-secret DIAG hex=abcdef <script>bad()</script>", "other-service: unrelated"}
 local logs = model.logs()
-assert(not logs:find("old-user", 1, true) and not logs:find("old$!", 1, true))
-assert(not logs:find("previous-secret", 1, true) and not logs:find("previous-user", 1, true))
-assert(not logs:find("abcdef", 1, true) and not logs:find("unrelated", 1, true))
+assert(logs == loglines[1] and pipe_closed)
 loglines = {}; local empty, notice = model.logs(); assert(empty == "" and notice)
-for i = 1, 100 do loglines[i] = "minieap-sysu: line " .. i end
-logs = model.logs(); assert(not logs:find("line 61", 1, true))
-loglines = {"minieap-sysu:" .. string.rep("x", 1022 - #"minieap-sysu:") .. "中文"}
-logs = model.logs(); assert(#logs == 1022 and logs:sub(-1) == "x", "UTF-8 truncation must not split a character")
+for i = 1, 250 do loglines[i] = "minieap-sysu: line " .. i end
+logs = model.logs(); assert(logs:match("^minieap%-sysu: line 51\n") and logs:find("line 250", 1, true))
+loglines = {"minieap-sysu:" .. string.rep("中文", 2000)}
+assert(model.logs() == loglines[1], "Long lines must remain complete")
 
+-- Test the live session state machine independently of wall-clock/syslog history.
+local session = require "luci.model.minieap_session"
+local live = {phase = "authenticating"}
+local function event(message, now, carrier)
+    return session.update(live, message and ("[2026/7/2 12:00:00][I] " .. message), carrier ~= false, now)
+end
+assert(event("认证成功", 20) and live.since == 20)
+assert(not event("认证成功", 30) and live.since == 20)
+assert(not event("正在回应用户名请求", 40) and live.since == 20)
+assert(event(nil, 50, false) and live.since == nil)
+assert(event(nil, 60) and live.phase == "authenticating")
+assert(event("认证成功", 70) and live.since == 70)
+assert(event("认证失败 1 次", 80) and live.phase == "failed" and live.since == nil)
+assert(event("正在查找认证服务器", 90) and live.phase == "authenticating")
+assert(event("认证成功", 95))
+reset(); running = true
+files["/tmp/minieap-sysu-live-777/state.json"] = serialize(live)
+assert(model.status().connected_seconds == 5)
+uptime = 105; assert(model.status().connected_seconds == 10)
+files["/sys/class/net/eth0/carrier"] = "0\n"
+assert(model.status().connected_seconds == nil)
+reset(); running = false; assert(model.status().connected_seconds == nil)
 local method, posted, renders, headers, response_code, response_json = "GET", {}, {}, {}
+local download = {}
 local dispatcher = {
     context = {authtoken = "test-csrf-token"},
     test_post_security = function() return method == "POST" and posted.token == "test-csrf-token" end,
@@ -175,6 +210,7 @@ package.loaded["luci.http"] = {
     header = function(k, v) headers[k] = v end,
     status = function(code) response_code = code end,
     prepare_content = function() end,
+    write = function(chunk) download[#download + 1] = chunk end,
     write_json = function(data) response_json = data end
 }
 package.loaded["luci.template"] = {render = function(name, context) renders[#renders + 1] = context end}
@@ -192,10 +228,21 @@ reset(); posted = {token = "test-csrf-token", action = "save", username = "old-u
 posted.request_id = assert(model.ticket(posted.token))
 ctrl.action_update(); assert(calls[1] == "enable" and #calls == 1)
 posted = {result = posted.request_id}; ctrl.action_index()
+assert(renders[#renders].message)
 local viewstate = renders[#renders].state
+ctrl.action_index(); assert(renders[#renders].message == nil and renders[#renders].error_message == nil)
+assert(model.submit(posted.result, "test-csrf-token", "save", "old-user", "", true))
+assert(#calls == 1, "Consuming a notice must not allow action replay")
 assert(viewstate.username == "old-user" and viewstate.password == nil)
 ctrl.action_status(); assert(response_json.state.password == nil and response_json.state.username == nil)
 assert(headers["Cache-Control"] == "no-store" and #calls == 1)
+
+loglines = {}
+for i = 1, 250 do loglines[i] = "minieap-sysu: " .. i .. string.rep("x", 1100) end
+ctrl.action_logs()
+assert(table.concat(download) == table.concat(loglines, "\n") .. "\n")
+assert(headers["Content-Disposition"]:find("attachment", 1, true) and pipe_closed)
+assert(headers["Cache-Control"] == "no-store")
 
 -- Execute the Lua template fragments and check escaping and password omission.
 local f = assert(io.open(base .. "/root/usr/lib/lua/luci/view/minieap_sysu/index.htm"))
@@ -225,4 +272,4 @@ assert(html:find("&lt;img", 1, true) and not html:find('<img src=x', 1, true))
 assert(not html:find("old$!", 1, true))
 assert(html:find('name="password"', 1, true) and html:find('value="" placeholder=', 1, true))
 io.popen = original_popen
-print("PASS: Lua 5.1 model/controller/template; same-account secret retention; changed-account validation; atomic writes; save/restart failures; ticket replay, expiry and session binding; lock contention; POST+CSRF+303 redirect; log redaction/bounds; HTML escaping; polling excludes credentials.")
+print("PASS: Lua 5.1 model/controller/template; same-account secret retention; changed-account validation; atomic writes; save/restart failures; ticket replay, expiry and session binding; lock contention; POST+CSRF+303 redirect; 200-line display, full raw download, one-time notices; HTML escaping; polling excludes credentials.")

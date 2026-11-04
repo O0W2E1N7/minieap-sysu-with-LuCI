@@ -1,29 +1,60 @@
 <%+header%>
-<% local esc = require("luci.util").pcdata
+<style type="text/css">
+#campus-page .campus-service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 0;
+}
+#campus-page .campus-refresh-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin: 20px 0 16px;
+}
+#campus-page .campus-refresh-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+#campus-page .campus-service-actions .cbi-button,
+#campus-page .campus-refresh-row .cbi-button,
+#campus-page .campus-refresh-row input[type="checkbox"] {
+  margin: 0;
+}
+#campus-page .campus-dismiss { float: right; margin-left: 16px; border: 0; background: transparent; color: inherit; font-size: 22px; cursor: pointer; }
+#campus-page [hidden] { display: none !important; }
+</style>
+<% local esc = require("luci.xml").pcdata
    local url = require("luci.dispatcher").build_url("admin", "services", "minieap_sysu") %>
 <div class="cbi-map" id="campus-page" data-status-url="<%=url%>/status">
   <h2>校园网认证</h2>
-  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.4.0</div>
-  <% if message then %><div class="alert-message success" role="status"><%=esc(message)%></div><% end %>
-  <% if error_message then %><div class="alert-message warning" role="alert"><%=esc(error_message)%></div><% end %>
+  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.5.1</div>
+  <% if message then %><div id="campus-success" class="alert-message success" role="status"><button type="button" class="campus-dismiss" data-dismiss="campus-success" aria-label="关闭提示">×</button><%=esc(message)%></div><% end %>
+  <% if error_message then %><div id="campus-warning" class="alert-message warning" role="alert"><button type="button" class="campus-dismiss" data-dismiss="campus-warning" aria-label="关闭提示">×</button><%=esc(error_message)%></div><% end %>
   <p id="campus-state-error" role="status"><%=esc(state.error or "")%></p>
   <p id="campus-operation" role="status" aria-live="polite"></p>
   <fieldset class="cbi-section">
     <legend>当前状态</legend>
+    <p>校园网认证：<strong id="campus-connection"><%=esc(state.connection_text or "等待下一次认证")%></strong></p>
+    <p>本次已连接：<strong id="campus-duration" data-seconds="<%=state.connected_seconds or ""%>">—</strong></p>
     <p>认证服务：<strong id="campus-running"><%=state.running and "运行中" or "未运行"%></strong></p>
     <p>开机启动：<span id="campus-autostart"><%=state.enabled and "已开启" or "未开启"%></span></p>
     <p>校园网网卡：<span id="campus-nic"><%=esc(state.nic)%></span>　网线连接：<span id="campus-carrier"><%=state.carrier and "已连接" or "未检测到连接"%></span></p>
     <p>WAN 地址：<span id="campus-address"><%=esc(state.address ~= "" and state.address or "尚未取得 IPv4 地址")%></span></p>
     <p>WAN 状态：<span id="campus-wan"><%=state.wan_up and "已连接" or "未连接"%></span></p>
-    <p>服务运行不代表认证成功。请结合下方日志和实际访问判断；历史成功记录不代表当前在线。</p>
-    <form method="post" action="<%=url%>/update" class="campus-action-form">
+
+    <form method="post" action="<%=url%>/update" class="campus-action-form campus-service-actions">
       <input type="hidden" name="token" value="<%=esc(token)%>" />
       <input type="hidden" name="request_id" value="<%=esc(request_id or "")%>" />
       <button class="cbi-button cbi-button-apply" type="submit" name="action" value="start" <%=not request_id and 'disabled="disabled"' or ''%>>启动认证</button>
       <button class="cbi-button cbi-button-action" type="submit" name="action" value="restart" <%=not request_id and 'disabled="disabled"' or ''%>>重新认证</button>
       <button class="cbi-button cbi-button-reset" type="submit" name="action" value="stop" <%=not request_id and 'disabled="disabled"' or ''%>>停止认证</button>
     </form>
-    <p><label><input type="checkbox" id="campus-auto" checked="checked" /> 每 5 秒刷新状态与日志</label>
+    <p class="campus-refresh-row"><label><input type="checkbox" id="campus-auto" checked="checked" /> 每 5 秒刷新状态与日志</label>
       <button class="cbi-button" type="button" id="campus-refresh">立即刷新</button>
       <span id="campus-refresh-note" role="status">等待自动刷新</span></p>
     <noscript><p>浏览器未启用 JavaScript，请手动重新打开本页查看状态。表单操作仍可使用。</p></noscript>
@@ -41,11 +72,13 @@
       <button class="cbi-button cbi-button-save" type="submit" name="action" value="save" <%=not request_id and 'disabled="disabled"' or ''%>>仅保存设置</button>
       <button class="cbi-button cbi-button-apply" type="submit" name="action" value="save_restart" <%=not request_id and 'disabled="disabled"' or ''%>>保存并重新认证</button>
     </div>
-    <p>仅保存设置不重启认证。“保存并重新认证”会短暂中断有线校园网连接。</p>
+    <p>“仅保存设置”需要手动重启认证。“保存并重新认证”立即应用设置。</p>
   </form>
   <fieldset class="cbi-section">
     <legend>最近认证日志</legend>
-    <p>最近 60 条 MiniEAP 系统日志，旧记录会保留。已隐藏当前及上一次配置中的账号密码和 DIAG 报文；分享前仍请检查内容。</p>
+    <p class="campus-refresh-row">最近 200 条认证日志
+      <a class="cbi-button" href="<%=url%>/logs" download="minieap-authentication.log">下载全部认证日志</a>
+    </p>
     <p id="campus-log-message"><%=esc(logs_message or "")%></p>
     <pre id="campus-logs" tabindex="0" style="max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word"><%=esc(logs or "")%></pre>
   </fieldset>
@@ -56,7 +89,27 @@
   var page = document.getElementById('campus-page');
   var busy = false, loading = false, timer, activeRequest;
   function el(id) { return document.getElementById('campus-' + id); }
+  var dismissButtons = page.querySelectorAll('button[data-dismiss]');
+  for (var d = 0; d < dismissButtons.length; d++) {
+    dismissButtons[d].addEventListener('click', function () {
+      document.getElementById(this.getAttribute('data-dismiss')).hidden = true;
+    });
+  }
   function text(id, value) { el(id).textContent = value || ''; }
+  var connectedSeconds = null, connectedAt = 0;
+  function nowSeconds() { return performance.now() / 1000; }
+  function drawDuration() {
+    var seconds = connectedSeconds === null ? null : Math.floor(connectedSeconds + nowSeconds() - connectedAt);
+    function pad(n) { return n < 10 ? '0' + n : String(n); }
+    text('duration', seconds === null ? '—' : pad(Math.floor(seconds / 3600)) + ':' + pad(Math.floor(seconds / 60) % 60) + ':' + pad(seconds % 60));
+  }
+  function syncDuration(seconds) {
+    connectedSeconds = typeof seconds === 'number' && isFinite(seconds) && seconds >= 0 ? seconds : null;
+    connectedAt = nowSeconds(); drawDuration();
+  }
+  var initialSeconds = el('duration').getAttribute('data-seconds');
+  syncDuration(initialSeconds === '' ? null : Number(initialSeconds));
+  setInterval(drawDuration, 1000);
   function schedule() {
     clearTimeout(timer);
     if (!busy && !document.hidden && el('auto').checked) timer = setTimeout(refresh, 5000);
@@ -70,13 +123,15 @@
     xhr.open('GET', page.getAttribute('data-status-url') + '?_=' + Date.now(), true);
     xhr.timeout = 10000;
     function finish() { loading = false; activeRequest = null; schedule(); }
-    function fail() { text('refresh-note', '刷新失败，显示的是旧数据；请检查连接或重新登录 LuCI。'); finish(); }
+    function fail() { syncDuration(null); text('refresh-note', '刷新失败，显示的是旧数据；请检查连接或重新登录 LuCI。'); finish(); }
     xhr.onload = function () {
       if (busy) { finish(); return; }
       if (xhr.status !== 200) { fail(); return; }
       try {
         var data = JSON.parse(xhr.responseText), s = data.state;
         if (!s || typeof s.running !== 'boolean' || typeof data.logs !== 'string') throw new Error('invalid response');
+        text('connection', s.connection_text || '等待下一次认证');
+        syncDuration(s.connected_seconds);
         text('running', s.running ? '运行中' : '未运行');
         text('autostart', s.enabled ? '已开启' : '未开启');
         text('nic', s.nic);

@@ -55,7 +55,7 @@ function M.status()
     local ok, state = pcall(util.ubus, "service", "list", {name = service})
     if ok and state and state[service] then
         for _, instance in pairs(state[service].instances or {}) do
-            if instance.running then result.running = true end
+            if instance.running then result.running = true; result.pid = tonumber(instance.pid) end
         end
     end
     local wok, wan = pcall(util.ubus, "network.interface.wan", "status", {})
@@ -64,6 +64,24 @@ function M.status()
         local addresses = wan["ipv4-address"] or {}
         result.address = addresses[1] and addresses[1].address or ""
     end
+    result.phase, result.connection_text = "stopped", "认证已停止"
+    if result.running then
+        result.phase, result.connection_text = "unknown", "等待下一次认证"
+        if result.pid then
+            local raw = fs.readfile("/tmp/minieap-sysu-live-" .. result.pid .. "/state.json")
+            local live = raw and #raw < 4096 and json.parse(raw)
+            if type(live) == "table" then
+                local labels = {connected = "已认证", authenticating = "正在连接校园网…", failed = "认证失败", offline = "连接已断开", disconnected = "网线未连接", stopped = "认证已停止"}
+                if labels[live.phase] then result.phase, result.connection_text = live.phase, labels[live.phase] end
+                if live.phase == "connected" and type(live.since) == "number" and live.since <= sys.uptime() and live.since >= 0 then
+                    result.connected_seconds = math.floor(sys.uptime() - live.since)
+                    if not result.wan_up then result.connection_text = "认证成功，正在获取网络地址…" end
+                end
+            end
+        end
+    end
+    if not result.carrier then result.phase, result.connection_text, result.connected_seconds = "disconnected", "网线未连接", nil end
+    result.pid = nil
     return result
 end
 
@@ -110,7 +128,7 @@ function M.action(action)
     if not sys.init[action](service) then return nil, "服务操作失败，请在系统日志中查看 minieap。" end
     local messages = {
         start = "已提交启动请求，请稍后刷新状态。",
-        stop = "已停止认证服务。服务器可能需要稍后才释放在线会话。",
+        stop = "认证已停止。",
         restart = "已提交重新认证请求，请稍后刷新状态。"
     }
     return true, messages[action]
@@ -125,51 +143,24 @@ function M.save_restart(username, password, enabled)
     return true, "设置已保存，并已提交重新认证请求。请观察最近认证日志。"
 end
 
--- Read only this service's recent log lines. No form input enters the shell.
+-- Fixed commands only; retain original log text, including diagnostics.
+function M.open_logs(all)
+    if not fs.access("/sbin/logread", "x") then return nil, "系统缺少 /sbin/logread。" end
+    local command = "/sbin/logread -e '[Mm]ini[Ee][Aa][Pp]' 2>/dev/null"
+    if not all then command = command .. " | tail -n 200" end
+    local pipe = io.popen(command, "r")
+    if not pipe then return nil, "读取认证日志失败。" end
+    return pipe
+end
 function M.logs()
-    if not fs.access("/sbin/logread", "x") then
-        return "", "系统缺少 /sbin/logread，无法读取认证日志。"
-    end
-    local secrets = {}
-    for _, path in ipairs({conf, conf .. ".web-backup"}) do
-        local raw = fs.readfile(path)
-        if raw and #raw <= 16384 then
-            for line in (raw .. "\n"):gmatch("([^\n]*)\n") do
-                local key, value = line:match("^%s*([%w_-]+)=(.*)$")
-                if (key == "username" or key == "password") and value ~= "" then
-                    secrets[#secrets + 1] = value:gsub("%s+$", "")
-                end
-            end
-        end
-    end
-    table.sort(secrets, function(a, b) return #a > #b end)
-    local pipe = io.popen("/sbin/logread -e '[Mm]ini[Ee][Aa][Pp]' 2>/dev/null | tail -n 60", "r")
-    if not pipe then return "", "读取认证日志失败。" end
+    local pipe, err = M.open_logs(false)
+    if not pipe then return "", err end
     local lines = {}
     for line in pipe:lines() do
-        -- Omit raw diagnostic payloads; do not expose challenge/response dumps.
-        if line:find("[Mm]ini[Ee][Aa][Pp]") then
-            if line:find("DIAG", 1, true) or line:lower():find("hex=", 1, true) then
-                line = "[诊断报文内容已隐藏]"
-            else
-                line = line:gsub("\27%[[%d;]*m", "")
-                for _, value in ipairs(secrets) do
-                    if value ~= "" then
-                        line = line:gsub(value:gsub("(%W)", "%%%1"), function() return "[已隐藏]" end)
-                    end
-                end
-                line = line:gsub("%c", " ")
-            end
-            -- Do not split a UTF-8 character at the output limit.
-            local last = math.min(#line, 1024)
-            while last > 0 and line:byte(last + 1) and line:byte(last + 1) >= 128
-                  and line:byte(last + 1) < 192 do last = last - 1 end
-            lines[#lines + 1] = line:sub(1, last)
-            if #lines >= 60 then break end
-        end
+        lines[#lines + 1] = line
     end
     pipe:close()
-    return table.concat(lines, "\n"), #lines == 0 and "暂无认证日志。仅显示系统日志中的 MiniEAP 记录，SSH 前台输出不一定包含在内。" or nil
+    return table.concat(lines, "\n"), #lines == 0 and "暂无认证日志。" or nil
 end
 
 -- Session-bound, single-use tickets in RAM prevent retries/back-button replay.
@@ -222,6 +213,16 @@ end
 function M.result(id, session)
     local item = read_ticket(id, session)
     if item and item.used then return item end
+end
+-- Consume the display notice, but keep the operation receipt for replay protection.
+function M.consume_result(id, session)
+    return locked(function()
+        local item = read_ticket(id, session)
+        if not item or not item.used or item.seen then return nil end
+        item.seen = true
+        if not atomic_write(tickets .. "/" .. id, json.stringify(item)) then return nil end
+        return item
+    end)
 end
 function M.submit(id, session, action, username, password, enabled)
     return locked(function()
