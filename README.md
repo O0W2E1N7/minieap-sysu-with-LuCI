@@ -18,12 +18,21 @@
 - 操作结果只提示一次且可手动关闭；提交后防重复提交
 
 页面读写的是已有的 `minieap-sysu` 配置和 procd 服务，跟 netifd 版的 `minieap` 包互不干扰。
-认证程序源码在根提交导入后未再修改，本仓库后续改动都在 `openwrt/luci-app-minieap-sysu/` 内。
+本仓库在根提交导入上游认证程序源码后，先只改 `openwrt/` 下的页面；v1.5.2 起另含两处认证程序修复（见下文）。
 
-目前只在 GL-MT3600BE（GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT）的至善园环境完成部署验证；
-v1.4.0 起的新功能仅在本地模拟环境测试，尚未在该路由器实机验证。
+目前页面与认证程序都已在 GL-MT3600BE（GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT）的至善园环境实机验证；
+其他固件与网卡组合仍需自行验证。
 
-👉 **安装和详细用法见 [openwrt/luci-app-minieap-sysu/README.md](openwrt/luci-app-minieap-sysu/README.md)**，现成安装包在 [Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)。
+👉 **安装和详细用法见 [openwrt/luci-app-minieap-sysu/README.md](openwrt/luci-app-minieap-sysu/README.md)**，现成安装包在 [Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)（页面包与可选的已修复认证程序二进制各带 SHA256）。
+
+## 认证程序修复
+
+本仓库在 `openwrt/` 之外还修了两个认证程序缺陷，源码见 `eap_state_machine.c` 与 `minieap_init_func.lds`：
+
+- **失败重试定时器未取消**：一次认证失败会排一个 30 秒重试 alarm；若服务器在此期间主动重新认证并成功，这个 alarm 仍会触发，于是在已在线状态下再次发起认证，被服务端判为重复登录，形成“成功 → 掉线 → 重试 → 成功”的 30 秒循环。修复后认证成功会取消该 alarm，回调在已认证状态直接返回，并且同一时刻只保留一个待触发重试。
+- **模块注册表被链接器回收**：`minieap_init_func.lds` 没有对 if_impl 与插件注册表使用 `KEEP()`，启用 `--gc-sections` 的工具链会把它们当垃圾回收，编出的程序启动即报“网络驱动插件启用失败”。
+
+Releases 中提供按本仓库源码构建的 aarch64 静态二进制 `minieap-sysu-aarch64-v1.5.2`，替换 `/usr/sbin/minieap-sysu` 即生效，替换与回退步骤见该 Release 说明。该二进制已在 GL-MT3600BE 实机验证：重新认证只会出现一次失败，之后不再循环。
 
 ## Build
 
@@ -36,16 +45,28 @@ v1.4.0 起的新功能仅在本地模拟环境测试，尚未在该路由器实�
    - [openwrt/sdk](https://hub.docker.com/r/openwrt/sdk/tags)
    - [immortalwrt/sdk](https://hub.docker.com/r/immortalwrt/sdk/tags)
 
-3. 配置 CC 路径并构建。`IMAGE` 只在该 shell 内有效，所以下面几条命令要在同一个 shell 中执行：
+3. 用 SDK 内的交叉工具链构建。`IMAGE` 只在该 shell 内有效，所以下面几条命令要在同一个 shell 中执行；
+   `CC=` 直接覆盖 `config.mk` 里的默认值，不必改文件：
 
    ```sh
    IMAGE="docker.io/immortalwrt/sdk:mediatek-filogic-24.10-SNAPSHOT"
 
    TOOLCHAIN=$(docker run --rm $IMAGE sh -c 'realpath $(find staging_dir -name "*openwrt-linux-gcc")')
-   sed -i "s|gcc|$TOOLCHAIN|" config.mk
-
-   docker run -v "$(pwd):/minieap" -w /minieap -u root --rm $IMAGE make
+   docker run -v "$(pwd):/minieap" -w /minieap -u root --rm $IMAGE \
+     make CC="$TOOLCHAIN" STATIC_BUILD=true CFLAGS="-Os"
    ```
+
+### 用 Zig 交叉编译（不需要 Docker）
+
+Releases 里的 `minieap-sysu-aarch64-v1.5.2` 就是这样构建的。需要 Linux/macOS 或 WSL 主机，
+因为 Makefile 只在 Linux 主机上加链接脚本 `-T minieap_init_func.lds`：
+
+```sh
+make -j2 CC="zig cc -target aarch64-linux-musl -mcpu=cortex_a53" CFLAGS="-Os" STATIC_BUILD=true
+```
+
+产物为静态链接的 `minieap`，可直接用于 musl 固件，不依赖路由器上的 libc 版本。
+链接脚本里两处注册表已加 `KEEP()`，因此即使工具链默认启用 `--gc-sections` 也不会丢掉 if_impl 与插件注册表。
 
 ## Usage
 
