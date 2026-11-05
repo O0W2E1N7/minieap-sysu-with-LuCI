@@ -1,4 +1,4 @@
-﻿# MiniEAP-SYSU
+# MiniEAP-SYSU
 
 [updateing/minieap](https://github.com/updateing/minieap) 的 SYSU 适配版本。
 
@@ -21,8 +21,9 @@
 页面读写的是已有的 `minieap-sysu` 配置和 procd 服务，跟 netifd 版的 `minieap` 包互不干扰。
 本仓库在根提交导入上游认证程序源码后，先只改 `openwrt/` 下的页面；v1.5.2 起另含两处认证程序修复（见下文）。
 
-目前页面与认证程序都已在 GL-MT3600BE（GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT）的至善园环境实机验证；
-其他固件与网卡组合仍需自行验证。
+页面、认证程序（v1.5.2 的两处 C 修复）与 v1.6.0 的网卡选择都已在 GL-MT3600BE
+（GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT）实机验证；该设备只有一个可作认证口的物理网口，
+多网口设备上的切换效果仍需自行验证。
 
 👉 **安装和详细用法见 [openwrt/luci-app-minieap-sysu/README.md](openwrt/luci-app-minieap-sysu/README.md)**，现成安装包在 [Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)（页面包与可选的已修复认证程序二进制各带 SHA256）。
 
