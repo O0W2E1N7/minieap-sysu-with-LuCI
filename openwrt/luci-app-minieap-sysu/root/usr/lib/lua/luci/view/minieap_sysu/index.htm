@@ -1,4 +1,4 @@
-<%+header%>
+﻿<%+header%>
 <style type="text/css">
 #campus-page .campus-service-actions {
   display: flex;
@@ -62,13 +62,14 @@
 #campus-page .campus-metric strong { font-size: 1.1em; overflow-wrap: anywhere; }
 #campus-page .campus-busy { opacity: .65; cursor: progress; }
 #campus-page .campus-fold-row { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+#campus-page .campus-nic-all { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: .9em; }
 #campus-page [hidden] { display: none !important; }
 </style>
 <% local esc = require("luci.xml").pcdata
    local url = require("luci.dispatcher").build_url("admin", "services", "minieap_sysu") %>
 <div class="cbi-map" id="campus-page" data-status-url="<%=url%>/status">
   <h2>校园网认证</h2>
-  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.5.2</div>
+  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.6.0</div>
   <div id="campus-alerts" class="campus-alerts">
     <% if message then %>
     <div id="campus-success" class="alert-message success campus-alert" role="status" data-autodismiss="6000"><span class="campus-alert-text"><%=esc(message)%></span><a class="campus-alert-link" href="#campus-logs">查看日志 ↓</a><button type="button" class="campus-dismiss" data-dismiss="campus-success" aria-label="关闭提示">×</button></div>
@@ -113,6 +114,25 @@
       <div class="cbi-value"><label class="cbi-value-title" for="campus-user">NetID</label><div class="cbi-value-field"><input id="campus-user" name="username" type="text" maxlength="64" required="required" value="<%=esc(state.username)%>" /></div></div>
       <div class="cbi-value"><label class="cbi-value-title" for="campus-password">校园网密码</label><div class="cbi-value-field"><input id="campus-password" name="password" type="password" maxlength="64" autocomplete="new-password" value="" placeholder="同一账号留空保留原密码" /><div class="cbi-value-description" id="campus-password-help">已保存的密码不会显示。更换 NetID 必须填写新密码。</div></div></div>
       <div class="cbi-value"><label class="cbi-value-title" for="campus-enabled">开机自动认证</label><div class="cbi-value-field"><input id="campus-enabled" name="enabled" type="checkbox" value="1" <%=state.enabled and 'checked="checked"' or ''%> /></div></div>
+      <div class="cbi-value"><label class="cbi-value-title" for="campus-nic-select">认证网卡</label><div class="cbi-value-field">
+        <select id="campus-nic-select" name="nic">
+          <% local listed = false
+             for _, iface in ipairs(interfaces or {}) do
+               local selected = iface.name == state.nic
+               if selected then listed = true end
+               local label = iface.name .. "（" .. iface.kind .. "）"
+               label = label .. (iface.carrier and " 已连接" or " 无链路")
+               if iface.ipv4 then label = label .. " " .. iface.ipv4 end
+               if not iface.usable then label = label .. " · 可能不通" end %>
+          <option value="<%=esc(iface.name)%>" data-usable="<%=iface.usable and 1 or 0%>"<%=selected and ' selected="selected"' or ''%>><%=esc(label)%></option>
+          <% end
+             if not listed and state.nic and state.nic ~= "" then %>
+          <option value="<%=esc(state.nic)%>" data-usable="1" selected="selected"><%=esc(state.nic)%>（当前配置）</option>
+          <% end %>
+        </select>
+        <label class="campus-nic-all"><input type="checkbox" id="campus-nic-all" /> 显示全部接口</label>
+        <div class="cbi-value-description" id="campus-nic-help">切换网卡后需要重新认证才会生效。</div>
+      </div></div>
     </fieldset>
     <div class="cbi-page-actions">
       <button class="cbi-button cbi-button-save" type="submit" name="action" value="save" <%=not request_id and 'disabled="disabled"' or ''%>>仅保存设置</button>
@@ -228,6 +248,34 @@
   }
   var foldControl = el('fold');
   if (foldControl) foldControl.addEventListener('change', function () { renderLogs(rawLogs); });
+
+  // Interface picker: show standalone physical ports first, everything else on demand.
+  var nicSelect = el('nic-select');
+  var nicAll = el('nic-all');
+  function nicUsable(option) {
+    return !!option && typeof option.getAttribute === 'function' && option.getAttribute('data-usable') === '1';
+  }
+  function refreshNicOptions() {
+    if (!nicSelect || !nicSelect.options) return;
+    var showAll = !!(nicAll && nicAll.checked);
+    for (var o = 0; o < nicSelect.options.length; o++) {
+      var option = nicSelect.options[o];
+      option.hidden = !showAll && !option.selected && !nicUsable(option);
+    }
+  }
+  function updateNicHelp() {
+    if (!nicSelect || !nicSelect.options) return;
+    var option = nicSelect.options[nicSelect.selectedIndex];
+    text('nic-help', nicUsable(option)
+      ? '切换网卡后需要重新认证；仅保存不会立即断网。'
+      : '该接口不是独立物理口（括号内为类型），认证报文可能无法发出。切换后需要重新认证。');
+  }
+  if (nicSelect) {
+    nicSelect.addEventListener('change', function () { updateNicHelp(); refreshNicOptions(); });
+    if (nicAll) nicAll.addEventListener('change', refreshNicOptions);
+    refreshNicOptions();
+    updateNicHelp();
+  }
 
   function schedule() {
     clearTimeout(timer);

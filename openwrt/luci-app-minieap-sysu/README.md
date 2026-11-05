@@ -1,10 +1,18 @@
 # 至善园 MiniEAP LuCI 校园网认证页面
 
-版本：1.5.2。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
+版本：1.6.0。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
 这是社区适配页面，并非锐捷、学校或 GL.iNet 官方插件。
 
 v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮行与自动刷新行间隔为 20px，
 刷新行内各项间隔为 20px；窄屏自动换行。认证及配置保存逻辑与 v1.4.0 相同。
+
+## v1.6.0 认证网卡选择
+
+- 认证网卡改为下拉选择：扫描 `/sys/class/net`，默认只列“独立物理口”——存在 `device`、不是网桥、不是桥成员、不是无线接口；其余接口需勾选“显示全部接口”才可见。
+- 每一项显示类型、链路与 IPv4；桥接、桥成员、无线接口会标注“可能不通”。
+- 切换网卡后需要重新认证才生效；仅保存不会立即断网。
+- 配置文件里的 `nic=` 是唯一事实源：状态检测、启动脚本与状态记录程序都从它读取；缺少该行时回退 `eth0`。
+- 启动脚本等待所选网卡的链路，并每 30 秒输出一条等待日志，不再静默阻塞。
 
 ## v1.5.2 页面交互改进
 
@@ -31,7 +39,7 @@ v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮�
 
 安装会更新并备份 `/usr/libexec/minieap-sysu-run`，新增 Lua 状态记录程序。安装不主动断开现有连接；
 安装后点击一次“重新认证”，新启动脚本才开始记录计时。记录在内存临时目录中，网页关闭后仍继续记录。
-v1.5.2 已随 [luci-v1.5.2](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.5.2) 发布。首次升级前的连接不补算时长。
+v1.6.0 已随 [luci-v1.6.0](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.6.0) 发布。首次升级前的连接不补算时长。
 
 ## 功能与实测范围
 
@@ -46,7 +54,8 @@ v1.5.2 已随 [luci-v1.5.2](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/r
 实测设备为 GL-MT3600BE，GL.iNet 4.9.0 / OpenWrt 21.02-SNAPSHOT，ARM64。
 v1.5.2 的页面交互与认证程序修复均已在该设备实机验证：页面安装、状态摘要、日志折叠、
 提示条与提交反馈正常；替换认证程序后重新认证只出现一次失败，之后未再出现 30 秒循环。
-v1.4.0–v1.5.1 的功能只做过本地 Lua 5.1 与 JavaScript 回归测试；其他固件与网卡组合仍需验证。
+v1.4.0–v1.5.1 的功能只做过本地 Lua 5.1 与 JavaScript 回归测试。
+v1.6.0 的网卡选择已通过 Lua/JS 测试，但尚未在该设备实机验证；其他固件与网卡组合仍需验证。
 
 此目录的安装包不会改写认证算法，也不包含预编译认证内核：LuCI 页面本身不依赖 CPU 架构，
 但认证程序必须为设备架构和固件编译。需要旧版 Lua LuCI、`luci.jsonc`、nixio 和 `/sbin/logread`；
@@ -56,10 +65,10 @@ v1.4.0–v1.5.1 的功能只做过本地 Lua 5.1 与 JavaScript 回归测试；�
 
 本目录的安装包只含页面与脚本，不含认证程序。仓库在 v1.5.2 另修了两个认证程序缺陷——
 失败重试定时器未取消导致的 30 秒循环、链接脚本缺少 `KEEP()` 导致的模块注册表被回收——
-并在 Releases 提供按本仓库源码构建的 aarch64 静态二进制 `minieap-sysu-aarch64-v1.5.2`。
+并在 Releases 提供按本仓库源码构建的 aarch64 静态二进制 `minieap-sysu-aarch64-v1.6.0`。
 
 替换 `/usr/sbin/minieap-sysu` 前请先备份；停止服务后等待约 20 秒再启动，让交换机释放旧会话。
-完整步骤、校验值与回退方式见 [luci-v1.5.2 发布说明](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.5.2)。
+完整步骤、校验值与回退方式见 [luci-v1.6.0 发布说明](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.6.0)。
 页面不需要这个二进制也能正常工作，它只修认证程序侧的问题。
 
 ## 与已有 MiniEAP 软件包的区别
@@ -73,14 +82,15 @@ v1.4.0–v1.5.1 的功能只做过本地 Lua 5.1 与 JavaScript 回归测试；�
 | `/etc/init.d/minieap-sysu` | procd 服务 |
 | `/usr/libexec/minieap-sysu-run` | 等待 eth0 链路后启动认证 |
 
-目前网卡固定为 `eth0`。其他设备请同时适配页面、配置和 runner，不能只在配置里改网卡。
+v1.6.0 起可在页面直接选择认证网卡，配置、启动脚本与状态记录程序都以配置里的 `nic=` 为准；
+缺少该行时回退 `eth0`。只有选择 `eth0` 之外的口时，才需要确认该固件下 raw socket 是否能从该口发出。
 如果已经使用这些路径并成功认证，直接安装页面即可。
 
 ## 安装页面
 
 两种方式任选其一：直接下载现成安装包，或从源码自行打包。现成包在
 [Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)，下载
-`minieap-sysu-luci-v1.5.2.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
+`minieap-sysu-luci-v1.6.0.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
 
 从源码打包（Python 3）：
 
@@ -104,9 +114,9 @@ scp -O openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz \
 ```sh
 cd /tmp &&
 sha256sum -c minieap-sysu-luci.tar.gz.sha256 &&
-mkdir -p /tmp/minieap-luci-v1.5.2 &&
-tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.5.2 &&
-sh /tmp/minieap-luci-v1.5.2/install.sh
+mkdir -p /tmp/minieap-luci-v1.6.0 &&
+tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.6.0 &&
+sh /tmp/minieap-luci-v1.6.0/install.sh
 ```
 
 安装脚本校验包内文件，备份旧版页面与启动脚本，安装页面、连接状态记录模块和启动脚本，并清除 LuCI 临时编译缓存。
@@ -131,7 +141,7 @@ sh /tmp/minieap-luci-v1.5.2/install.sh
 ## 尚未配置服务时
 
 先按仓库根目录说明，为设备编译并验证 MiniEAP 可执行文件——也可以直接使用 Releases 里
-已修复的 `minieap-sysu-aarch64-v1.5.2`。确认网卡配置与上文说明一致，并停止其他认证客户端。
+已修复的 `minieap-sysu-aarch64-v1.6.0`。确认网卡配置与上文说明一致，并停止其他认证客户端。
 下面操作只适用于首次部署，已有可用配置时不要覆盖。
 
 将可执行文件传至 `/tmp/minieap`，将本目录的 `runtime/` 传至 `/tmp/minieap-runtime/`。
@@ -190,7 +200,7 @@ python3 openwrt/luci-app-minieap-sysu/build_bundle.py
 
 测试覆盖模拟 LuCI 环境下的密码保留、更换账号校验、特殊字符、私有权限、原子写入失败、
 保存后重启及失败提示、POST/CSRF、303 跳转、凭证过期/会话绑定/重复请求、锁冲突、完整日志导出、一次性提示、
-模板转义、服务动作白名单，以及真实缓存文件命名方式的清理回归。
+模板转义、服务动作白名单、接口扫描与网卡切换校验，以及真实缓存文件命名方式的清理回归。
 JavaScript 测试使用模拟 DOM/XHR，覆盖自动刷新不覆盖表单、标签页暂停、网络/登录失效、
 纯文本日志、滚动位置、换账号校验、提交动作保留、重复点击和返回缓存页面，以及提示自动消失与悬停暂停、
 地址栏一次性参数清理、提交进度文案、滚动位置恢复、重认证加速轮询、日志折叠与还原。

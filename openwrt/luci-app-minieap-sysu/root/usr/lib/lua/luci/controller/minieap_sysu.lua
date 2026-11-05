@@ -19,6 +19,7 @@ local function render(message, error_message)
     http.header("Cache-Control", "no-store")
     require("luci.template").render("minieap_sysu/index", {
         state = model.status(),
+        interfaces = model.interfaces(),
         request_id = request_id,
         logs = logs,
         logs_message = logs_message,
@@ -58,7 +59,7 @@ function action_update()
     local action = http.formvalue("action")
     local id = http.formvalue("request_id")
     model.submit(id, dispatcher.context.authtoken, action, http.formvalue("username"),
-        http.formvalue("password") or "", http.formvalue("enabled") == "1")
+        http.formvalue("password") or "", http.formvalue("enabled") == "1", http.formvalue("nic"))
     local suffix = model.result(id, dispatcher.context.authtoken) and ("?result=" .. id) or "?notice=retry"
     -- POST/Redirect/GET prevents refresh from repeating a mutation.
     http.status(303, "See Other")

@@ -3,15 +3,31 @@ package.path = base .. "/root/usr/lib/lua/?.lua;" .. package.path
 local conf = "/etc/minieap-sysu.conf"
 local initial = "# existing settings\nusername=old-user\npassword=old$!#='\\pass\nnic=eth0\nif-impl=sockraw\ndaemonize=0\npid-file=/var/run/minieap-sysu.pid\n"
 local files, modes, calls, enabled, running = {}, {}, {}, false, false
+local ifaces = {}
 local failwrite, failrename, failrestart, lockbusy = false, false, false, false
 local uptime, unique = 100, 0
 local directories = {}
 local fs = {}
-fs.stat = function(path) return directories[path] and {type = "dir"} or nil end
+fs.stat = function(path)
+    local name, attr = path:match("^/sys/class/net/([^/]+)/([^/]+)$")
+    if name and attr then
+        if ifaces[name] == nil then return nil end
+        return ifaces[name][attr] and {type = "dir"} or nil
+    end
+    local only = path:match("^/sys/class/net/([^/]+)$")
+    if only then return ifaces[only] and {type = "dir"} or nil end
+    return directories[path] and {type = "dir"} or nil
+end
 fs.mkdir = function(path, mode) assert(mode == "rwx------"); directories[path] = true; return true end
 fs.chmod = function(path, mode) assert(mode == "rwx------"); return directories[path] end
 fs.access = function() return true end
 fs.dir = function(path)
+    if path == "/sys/class/net" then
+        local list = {}
+        for name in pairs(ifaces) do list[#list + 1] = name end
+        local j = 0
+        return function() j = j + 1; return list[j] end
+    end
     local names = {}
     for name in pairs(files) do
         if name:sub(1, #path + 1) == path .. "/" then names[#names + 1] = name:sub(#path + 2) end
@@ -19,7 +35,14 @@ fs.dir = function(path)
     local i = 0
     return function() i = i + 1; return names[i] end
 end
-fs.readfile = function(path) return files[path] end
+fs.readfile = function(path)
+    if files[path] ~= nil then return files[path] end
+    local name, attr = path:match("^/sys/class/net/([^/]+)/([^/]+)$")
+    if name and attr and ifaces[name] and ifaces[name]["file_" .. attr] ~= nil then
+        return ifaces[name]["file_" .. attr]
+    end
+    return files[path]
+end
 fs.remove = function(path) files[path] = nil; return true end
 fs.rename = function(a, b)
     if failrename and b == conf then return nil end
@@ -93,7 +116,8 @@ package.loaded["luci.xml"] = {pcdata = util.pcdata}
 util.pcdata = function() error("Deprecated escape function used") end
 local model = require "luci.model.minieap_sysu"
 local function reset()
-    files = {[conf] = initial, ["/sys/class/net/eth0/carrier"] = "1\n"}
+    files = {[conf] = initial}
+    ifaces = {eth0 = {carrier = true, device = true, file_carrier = "1\n"}}
     modes, calls, enabled, failwrite, failrename = {}, {}, false, false, false
     failrestart, lockbusy, uptime = false, false, 100
 end
@@ -122,7 +146,8 @@ assert(not model.save("new-user", "new-password", true)); assert(files[conf] == 
 reset(); failrename = true
 assert(not model.save("new-user", "new-password", true)); assert(files[conf] == initial)
 reset(); files[conf] = initial:gsub("nic=eth0", "nic=br-lan")
-assert(not model.save("new-user", "new-password", true)); assert(#calls == 0)
+assert(model.save("new-user", "new-password", true)); assert(#calls == 1)
+assert(files[conf]:find("nic=br-lan", 1, true))
 reset(); assert(not model.action("stop; echo bad")); assert(#calls == 0)
 assert(model.action("restart")); assert(calls[1] == "restart")
 
@@ -271,5 +296,36 @@ assert(html:find("&lt;script&gt;", 1, true))
 assert(html:find("&lt;img", 1, true) and not html:find('<img src=x', 1, true))
 assert(not html:find("old$!", 1, true))
 assert(html:find('name="password"', 1, true) and html:find('value="" placeholder=', 1, true))
+-- Interface discovery: only standalone physical ports are usable candidates.
+reset()
+ifaces = {
+    eth0 = {carrier = true, device = true, file_carrier = "1\n"},
+    eth1 = {carrier = true, device = true, master = true, file_carrier = "1\n"},
+    ["br-lan"] = {carrier = true, bridge = true, file_carrier = "1\n"},
+    ra0 = {carrier = true, device = true, phy80211 = true, file_carrier = "1\n"}
+}
+local iflist = model.interfaces()
+assert(#iflist == 4 and iflist[1].name == "eth0" and iflist[1].usable)
+local kinds, usable = {}, {}
+for _, item in ipairs(iflist) do kinds[item.name] = item.kind; usable[item.name] = item.usable end
+assert(kinds.eth1 == "桥成员" and not usable.eth1)
+assert(kinds["br-lan"] == "网桥" and not usable["br-lan"])
+assert(kinds.ra0 == "无线" and not usable.ra0)
+
+-- Saving a new interface rewrites nic=, and rejects unknown or illegal names.
+reset(); ifaces.eth1 = {carrier = true, device = true, master = true, file_carrier = "1\n"}
+local saved_ok, saved_msg = model.save("old-user", "", false, "eth1")
+assert(saved_ok and saved_msg:find("认证网卡", 1, true))
+assert(files[conf]:find("nic=eth1", 1, true))
+assert(not model.save("old-user", "", false, "ghost"))
+assert(not model.save("old-user", "", false, "bad/name"))
+assert(not model.save("old-user", "", false, "lo"))
+
+-- A stored interface that vanished from /sys still loads, but is flagged.
+reset(); files[conf] = initial:gsub("nic=eth0", "nic=ppp0")
+local missing = model.status()
+assert(missing.nic == "ppp0" and missing.nic_missing)
+
 io.popen = original_popen
-print("PASS: Lua 5.1 model/controller/template; same-account secret retention; changed-account validation; atomic writes; save/restart failures; ticket replay, expiry and session binding; lock contention; POST+CSRF+303 redirect; 200-line display, full raw download, one-time notices; HTML escaping; polling excludes credentials.")
+print("PASS: Lua 5.1 model/controller/template; same-account secret retention; changed-account validation; atomic writes; save/restart failures; ticket replay, expiry and session binding; lock contention; POST+CSRF+303 redirect; 200-line display, full raw download, one-time notices; HTML escaping; polling excludes credentials; interface discovery and nic switching.")
+

@@ -19,6 +19,80 @@ local function read_config()
     return cfg, raw
 end
 
+-- Interface helpers. All of them tolerate a missing /sys or a stubbed test FS.
+local IFNAME_PATTERN = "^[%w_.:%-]+$"
+local function valid_ifname(name)
+    return type(name) == "string" and #name >= 1 and #name <= 15 and name:match(IFNAME_PATTERN) ~= nil
+end
+
+local function stat_ok(path)
+    if not fs.stat then return false end
+    local ok, value = pcall(fs.stat, path)
+    return ok and value ~= nil
+end
+
+local function read_trim(path)
+    if not fs.readfile then return nil end
+    local ok, value = pcall(fs.readfile, path)
+    if not ok or not value then return nil end
+    return (value:gsub("%s+$", ""))
+end
+
+-- Only used to label usable candidates, so a missing `ip` binary is harmless.
+local function iface_ipv4(name)
+    if not sys.exec then return nil end
+    local ok, out = pcall(sys.exec, "ip -4 -o addr show dev " .. name .. " 2>/dev/null")
+    if not ok or type(out) ~= "string" then return nil end
+    return out:match("inet%s+([%d%.]+/%d+)")
+end
+
+local function describe_interface(name)
+    local base = "/sys/class/net/" .. name
+    local carrier_raw = read_trim(base .. "/carrier")
+    local info = {
+        name = name,
+        operstate = read_trim(base .. "/operstate") or "",
+        mac = read_trim(base .. "/address") or "",
+        carrier = carrier_raw == "1",
+        carrier_known = carrier_raw ~= nil,
+        physical = stat_ok(base .. "/device"),
+        bridge = stat_ok(base .. "/bridge"),
+        slave = stat_ok(base .. "/master"),
+        wireless = stat_ok(base .. "/phy80211")
+    }
+    -- A raw-socket EAPOL client only makes sense on a standalone physical port:
+    -- a bridge member is forwarded by the bridge, wireless ignores it entirely.
+    info.usable = info.physical and not info.bridge and not info.slave and not info.wireless
+    if info.bridge then info.kind = "网桥"
+    elseif info.wireless then info.kind = "无线"
+    elseif info.slave then info.kind = "桥成员"
+    elseif info.physical then info.kind = "物理"
+    else info.kind = "虚拟" end
+    if info.usable then info.ipv4 = iface_ipv4(name) end
+    return info
+end
+
+function M.interfaces()
+    local list, seen = {}, {}
+    if fs.dir then
+        local ok, iter = pcall(fs.dir, "/sys/class/net")
+        if ok and iter then
+            for name in iter do
+                if valid_ifname(name) and name ~= "lo" and not seen[name] then
+                    seen[name] = true
+                    list[#list + 1] = describe_interface(name)
+                end
+            end
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.usable ~= b.usable then return a.usable end
+        if a.carrier ~= b.carrier then return a.carrier end
+        return a.name < b.name
+    end)
+    return list
+end
+
 local function atomic_write(path, data)
     local tmp = path .. ".web-" .. nx.getpid()
     -- Symbolic owner-only permissions avoid numeric mode interpretation.
@@ -40,15 +114,21 @@ end
 
 function M.status()
     local cfg, err = read_config()
+    local configured_nic = cfg and cfg.nic or ""
+    if not valid_ifname(configured_nic) then configured_nic = "" end
+    local active_nic = configured_nic ~= "" and configured_nic or "eth0"
     -- Never pass the stored password into the template or a response.
     local result = {
         username = cfg and cfg.username or "",
-        nic = cfg and cfg.nic or "",
+        nic = active_nic,
+        nic_configured = configured_nic,
+        nic_default = configured_nic == "",
+        nic_missing = configured_nic ~= "" and not stat_ok("/sys/class/net/" .. configured_nic),
         configured = cfg and (cfg.username or "") ~= "" and (cfg.password or "") ~= "" or false,
         error = not cfg and err or nil,
         enabled = sys.init.enabled(service),
         running = false,
-        carrier = (fs.readfile("/sys/class/net/eth0/carrier") or ""):match("^1") ~= nil,
+        carrier = read_trim("/sys/class/net/" .. active_nic .. "/carrier") == "1",
         wan_up = false,
         address = ""
     }
@@ -85,7 +165,7 @@ function M.status()
     return result
 end
 
-function M.save(username, password, enabled)
+function M.save(username, password, enabled, nic)
     if type(username) ~= "string" or #username < 1 or #username > 64
        or username:find("[%c%s]") then
         return nil, "账号应为 1–64 字节，不能包含空格、换行或控制字符。"
@@ -96,7 +176,16 @@ function M.save(username, password, enabled)
     end
     local cfg, raw = read_config()
     if not cfg then return nil, raw end
-    if cfg.nic ~= "eth0" then return nil, "此页面适配 eth0，请先确认现有网卡配置。" end
+    -- The stored nic is authoritative; only a different submitted value is validated.
+    local target_nic = cfg.nic or ""
+    if nic ~= nil and nic ~= "" and nic ~= target_nic then
+        if not valid_ifname(nic) then return nil, "网卡名不合法，只允许字母、数字与 _ . : -。" end
+        if nic == "lo" then return nil, "不能选择回环接口 lo。" end
+        if not stat_ok("/sys/class/net/" .. nic) then return nil, "系统中不存在接口 " .. nic .. "。" end
+        target_nic = nic
+    end
+    if not valid_ifname(target_nic) then target_nic = "eth0" end
+    local nic_changed = target_nic ~= (cfg.nic or "")
     if username ~= cfg.username and password == "" then
         return nil, "更换 NetID 时必须同时填写新账号的密码。"
     end
@@ -105,10 +194,11 @@ function M.save(username, password, enabled)
     local lines = {}
     for line in raw:gmatch("([^\n]+)") do
         local key = line:match("^%s*([%w_-]+)=")
-        if key ~= "username" and key ~= "password" then lines[#lines + 1] = line end
+        if key ~= "username" and key ~= "password" and key ~= "nic" then lines[#lines + 1] = line end
     end
     lines[#lines + 1] = "username=" .. username
     lines[#lines + 1] = "password=" .. password
+    lines[#lines + 1] = "nic=" .. target_nic
     if not atomic_write(conf .. ".web-backup", raw) then
         return nil, "备份配置失败，未修改认证配置。"
     end
@@ -118,6 +208,9 @@ function M.save(username, password, enabled)
     local ok = enabled and sys.init.enable(service) or nil
     if not enabled then ok = sys.init.disable(service) end
     if not ok then return nil, "账号配置已保存，但开机启动设置失败，请检查系统日志。" end
+    if nic_changed then
+        return true, "已保存，认证网卡改为 " .. target_nic .. "；重新认证后才会在新网卡上生效。"
+    end
     return true, "已保存。账号密码将在下次启动或重新认证时生效。"
 end
 
@@ -134,8 +227,8 @@ function M.action(action)
     return true, messages[action]
 end
 
-function M.save_restart(username, password, enabled)
-    local ok, message = M.save(username, password, enabled)
+function M.save_restart(username, password, enabled, nic)
+    local ok, message = M.save(username, password, enabled, nic)
     if not ok then return nil, message end
     if not sys.init.restart(service) then
         return nil, "设置已保存，但重新认证请求失败。请查看日志或手动启动认证。"
@@ -224,7 +317,7 @@ function M.consume_result(id, session)
         return item
     end)
 end
-function M.submit(id, session, action, username, password, enabled)
+function M.submit(id, session, action, username, password, enabled, nic)
     return locked(function()
         local item = read_ticket(id, session)
         if not item then return nil, "页面已过期，请刷新后重新操作。" end
@@ -233,8 +326,8 @@ function M.submit(id, session, action, username, password, enabled)
         local path = tickets .. "/" .. id
         if not atomic_write(path, json.stringify(item)) then return nil, "无法记录操作，请刷新后重试。" end
         local ok, message
-        if action == "save" then ok, message = M.save(username, password, enabled)
-        elseif action == "save_restart" then ok, message = M.save_restart(username, password, enabled)
+        if action == "save" then ok, message = M.save(username, password, enabled, nic)
+        elseif action == "save_restart" then ok, message = M.save_restart(username, password, enabled, nic)
         else ok, message = M.action(action) end
         item.ok, item.message = ok == true, message
         atomic_write(path, json.stringify(item))

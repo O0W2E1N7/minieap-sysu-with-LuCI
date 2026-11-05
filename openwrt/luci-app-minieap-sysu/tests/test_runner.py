@@ -17,7 +17,10 @@ with tempfile.TemporaryDirectory(prefix='minieap-runner-') as directory:
     fake_monitor = root / 'monitor'
     fake_monitor.write_text('#!/bin/sh\necho $$ > "' + str(root / 'monitor.pid') + '"\nexec cat\n')
     fake_monitor.chmod(0o755)
-    script = source.replace('/sys/class/net/eth0/carrier', str(root / 'carrier'))
+    conf = root / 'conf'
+    conf.write_text('nic=eth0\n')
+    script = source.replace('/sys/class/net/$NIC/carrier', str(root / 'carrier'))
+    script = script.replace('/etc/minieap-sysu.conf', str(conf))
     script = script.replace('/usr/sbin/minieap-sysu', str(fake_auth))
     script = script.replace('lua /usr/libexec/minieap-sysu-monitor.lua', str(fake_monitor))
     script = script.replace('/tmp/minieap-sysu-live-', str(root / 'live-'))

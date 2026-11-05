@@ -5,6 +5,12 @@ session_dir="/tmp/minieap-sysu-live-$$"
 mkdir -p "$session_dir" || exit 1
 chmod 700 "$session_dir"
 rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp"
+# The configured nic is the single source of truth; fall back to eth0 when absent.
+NIC=$(sed -n 's/^[[:space:]]*nic=//p' /etc/minieap-sysu.conf 2>/dev/null | head -n 1 | tr -d '\r')
+case "$NIC" in
+    ""|*[!A-Za-z0-9_.:-]*) NIC=eth0 ;;
+esac
+[ "${#NIC}" -le 15 ] || NIC=eth0
 auth_pid=
 monitor_pid=
 cleanup() {
@@ -17,9 +23,17 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 0' INT TERM
-while [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" != 1 ]; do sleep 1; done
+# Wait for the configured interface, but leave a trace instead of blocking silently.
+waited=0
+while [ "$(cat "/sys/class/net/$NIC/carrier" 2>/dev/null)" != 1 ]; do
+    sleep 1
+    waited=$((waited + 1))
+    if [ $((waited % 30)) -eq 0 ]; then
+        echo "等待 $NIC 链路已 $waited 秒"
+    fi
+done
 mkfifo "$session_dir/output" || exit 1
-lua /usr/libexec/minieap-sysu-monitor.lua "$session_dir" < "$session_dir/output" &
+lua /usr/libexec/minieap-sysu-monitor.lua "$session_dir" "$NIC" < "$session_dir/output" &
 monitor_pid=$!
 /usr/sbin/minieap-sysu --conf-file /etc/minieap-sysu.conf -b 0 > "$session_dir/output" 2>&1 &
 auth_pid=$!

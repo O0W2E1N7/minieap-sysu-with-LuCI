@@ -7,7 +7,9 @@ local state = {phase = "authenticating"}
 local function uptime()
     return assert(tonumber((fs.readfile("/proc/uptime") or ""):match("^[%d.]+")))
 end
-local function carrier() return (fs.readfile("/sys/class/net/eth0/carrier") or ""):match("^1") ~= nil end
+local nic = arg[2]
+if type(nic) ~= "string" or #nic > 15 or not nic:match("^[%w_.:%-]+$") then nic = "eth0" end
+local function carrier() return (fs.readfile("/sys/class/net/" .. nic .. "/carrier") or ""):match("^1") ~= nil end
 local function save()
     local path = directory .. "/state.json"
     local file = assert(io.open(path .. ".tmp", "w")) -- parent directory and umask are private
