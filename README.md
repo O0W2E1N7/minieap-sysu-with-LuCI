@@ -27,6 +27,8 @@
 
 👉 **安装和详细用法见 [openwrt/luci-app-minieap-sysu/README.md](openwrt/luci-app-minieap-sysu/README.md)**，现成安装包在 [Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)（页面包与可选的已修复认证程序二进制各带 SHA256）。
 
+修改代码、跑测试与发版的规范见 [AGENTS.md](AGENTS.md)。
+
 ## 认证程序修复
 
 本仓库在 `openwrt/` 之外还修了两个认证程序缺陷，源码见 `eap_state_machine.c` 与 `minieap_init_func.lds`：
