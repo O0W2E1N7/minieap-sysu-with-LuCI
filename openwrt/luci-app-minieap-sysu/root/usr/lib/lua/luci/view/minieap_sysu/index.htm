@@ -1,4 +1,4 @@
-﻿<%+header%>
+<%+header%>
 <style type="text/css">
 #campus-page .campus-service-actions {
   display: flex;
@@ -116,18 +116,40 @@
       <div class="cbi-value"><label class="cbi-value-title" for="campus-enabled">开机自动认证</label><div class="cbi-value-field"><input id="campus-enabled" name="enabled" type="checkbox" value="1" <%=state.enabled and 'checked="checked"' or ''%> /></div></div>
       <div class="cbi-value"><label class="cbi-value-title" for="campus-nic-select">认证网卡</label><div class="cbi-value-field">
         <select id="campus-nic-select" name="nic">
-          <% local listed = false
+          <% local usable_list, other_list, listed = {}, {}, false
              for _, iface in ipairs(interfaces or {}) do
-               local selected = iface.name == state.nic
-               if selected then listed = true end
-               local label = iface.name .. "（" .. iface.kind .. "）"
-               label = label .. (iface.carrier and " 已连接" or " 无链路")
-               if iface.ipv4 then label = label .. " " .. iface.ipv4 end
-               if not iface.usable then label = label .. " · 可能不通" end %>
-          <option value="<%=esc(iface.name)%>" data-usable="<%=iface.usable and 1 or 0%>"<%=selected and ' selected="selected"' or ''%>><%=esc(label)%></option>
+               if iface.name == state.nic then listed = true end
+               if iface.usable then usable_list[#usable_list + 1] = iface
+               else other_list[#other_list + 1] = iface end
+             end
+             local function iface_label(iface)
+               local parts = {iface.name, iface.kind}
+               if iface.ipv4 then parts[#parts + 1] = iface.ipv4 end
+               if not iface.carrier then parts[#parts + 1] = "无链路" end
+               return table.concat(parts, " · ")
+             end
+             local function iface_detail(iface)
+               local parts = {iface.name, iface.kind, iface.carrier and "已连接" or "无链路"}
+               if iface.ipv4 then parts[#parts + 1] = iface.ipv4 end
+               if iface.mac and iface.mac ~= "" then parts[#parts + 1] = iface.mac end
+               return table.concat(parts, " · ")
+             end %>
+          <optgroup label="可用物理口">
+          <% for _, iface in ipairs(usable_list) do
+               local selected = iface.name == state.nic %>
+            <option value="<%=esc(iface.name)%>" data-usable="1" data-detail="<%=esc(iface_detail(iface))%>"<%=selected and ' selected="selected"' or ''%>><%=esc(iface_label(iface))%></option>
           <% end
              if not listed and state.nic and state.nic ~= "" then %>
-          <option value="<%=esc(state.nic)%>" data-usable="1" selected="selected"><%=esc(state.nic)%>（当前配置）</option>
+            <option value="<%=esc(state.nic)%>" data-usable="1" data-detail="<%=esc(state.nic .. " · 当前配置")%>" selected="selected"><%=esc(state.nic .. " · 当前配置")%></option>
+          <% end %>
+          </optgroup>
+          <% if #other_list > 0 then %>
+          <optgroup label="其他接口（可能不通）" data-optional="1">
+          <% for _, iface in ipairs(other_list) do
+               local selected = iface.name == state.nic %>
+            <option value="<%=esc(iface.name)%>" data-usable="0" data-detail="<%=esc(iface_detail(iface))%>"<%=selected and ' selected="selected"' or ''%>><%=esc(iface_label(iface))%></option>
+          <% end %>
+          </optgroup>
           <% end %>
         </select>
         <label class="campus-nic-all"><input type="checkbox" id="campus-nic-all" /> 显示全部接口</label>
@@ -249,31 +271,56 @@
   var foldControl = el('fold');
   if (foldControl) foldControl.addEventListener('change', function () { renderLogs(rawLogs); });
 
-  // Interface picker: show standalone physical ports first, everything else on demand.
+  // Interface picker: usable physical ports stay, the rest sit in an optional
+  // group that is detached unless the user asks for it. Detaching the group is
+  // the only reliable cross-browser way to hide its options.
   var nicSelect = el('nic-select');
   var nicAll = el('nic-all');
+  var nicOptional = [];
   function nicUsable(option) {
     return !!option && typeof option.getAttribute === 'function' && option.getAttribute('data-usable') === '1';
   }
-  function refreshNicOptions() {
-    if (!nicSelect || !nicSelect.options) return;
+  if (nicSelect && nicSelect.getElementsByTagName) {
+    var nicGroups = nicSelect.getElementsByTagName('optgroup');
+    for (var g = 0; g < nicGroups.length; g++) {
+      if (nicGroups[g].getAttribute('data-optional') === '1') {
+        nicOptional.push({group: nicGroups[g], next: nicGroups[g].nextSibling});
+      }
+    }
+  }
+  function nicGroupSelected(group) {
+    var options = group.getElementsByTagName ? group.getElementsByTagName('option') : [];
+    for (var j = 0; j < options.length; j++) if (options[j].selected) return true;
+    return false;
+  }
+  function applyNicFilter() {
+    if (!nicSelect || !nicOptional.length) return;
     var showAll = !!(nicAll && nicAll.checked);
-    for (var o = 0; o < nicSelect.options.length; o++) {
-      var option = nicSelect.options[o];
-      option.hidden = !showAll && !option.selected && !nicUsable(option);
+    for (var k = 0; k < nicOptional.length; k++) {
+      var entry = nicOptional[k];
+      var attached = entry.group.parentNode === nicSelect;
+      var keep = showAll || nicGroupSelected(entry.group);
+      if (keep && !attached) {
+        if (entry.next && entry.next.parentNode === nicSelect) nicSelect.insertBefore(entry.group, entry.next);
+        else nicSelect.appendChild(entry.group);
+      } else if (!keep && attached) {
+        nicSelect.removeChild(entry.group);
+      }
     }
   }
   function updateNicHelp() {
     if (!nicSelect || !nicSelect.options) return;
     var option = nicSelect.options[nicSelect.selectedIndex];
-    text('nic-help', nicUsable(option)
+    var detail = option && typeof option.getAttribute === 'function' ? option.getAttribute('data-detail') : '';
+    var suffix = nicUsable(option)
       ? '切换网卡后需要重新认证；仅保存不会立即断网。'
-      : '该接口不是独立物理口（括号内为类型），认证报文可能无法发出。切换后需要重新认证。');
+      : '该接口不是独立物理口，认证报文可能无法发出；切换后需要重新认证。';
+    text('nic-help', (detail ? detail + '。' : '') + suffix);
   }
   if (nicSelect) {
-    nicSelect.addEventListener('change', function () { updateNicHelp(); refreshNicOptions(); });
-    if (nicAll) nicAll.addEventListener('change', refreshNicOptions);
-    refreshNicOptions();
+    nicSelect.addEventListener('change', function () { updateNicHelp(); applyNicFilter(); });
+    if (nicAll) nicAll.addEventListener('change', applyNicFilter);
+    applyNicFilter();
     updateNicHelp();
   }
 

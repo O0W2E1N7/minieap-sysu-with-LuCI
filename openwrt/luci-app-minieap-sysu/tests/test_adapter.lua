@@ -284,9 +284,14 @@ end
 local output = {}
 local fn = assert(loadstring(table.concat(fragments, "\n")))
 viewstate.username = '\"><script>alert(1)</script>'
+viewstate.nic = "eth0"
 setfenv(fn, setmetatable({
     state = viewstate, token = "test-csrf-token", request_id = id, message = "Saved", error_message = nil,
     logs = '<img src=x onerror="alert(1)">',
+    interfaces = {
+        {name = "eth0", kind = "物理", usable = true, carrier = true, ipv4 = "192.0.2.10/24", mac = "aa:bb:cc:dd:ee:ff"},
+        {name = "eth1", kind = "桥成员", usable = false, carrier = true, mac = "aa:bb:cc:dd:ee:00"}
+    },
     out = function(s) output[#output + 1] = tostring(s or "") end
 }, {__index = _G}))
 fn()
@@ -296,6 +301,10 @@ assert(html:find("&lt;script&gt;", 1, true))
 assert(html:find("&lt;img", 1, true) and not html:find('<img src=x', 1, true))
 assert(not html:find("old$!", 1, true))
 assert(html:find('name="password"', 1, true) and html:find('value="" placeholder=', 1, true))
+assert(html:find("可用物理口", 1, true) and html:find("其他接口（可能不通）", 1, true))
+assert(html:find('data-optional="1"', 1, true))
+assert(html:find(">eth0 · 物理 · 192.0.2.10/24<", 1, true), "compact interface label")
+assert(html:find('data-detail="eth0 · 物理 · 已连接 · 192.0.2.10/24 · aa:bb:cc:dd:ee:ff"', 1, true))
 -- Interface discovery: only standalone physical ports are usable candidates.
 reset()
 ifaces = {
