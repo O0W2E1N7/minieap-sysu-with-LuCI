@@ -285,6 +285,8 @@ local output = {}
 local fn = assert(loadstring(table.concat(fragments, "\n")))
 viewstate.username = '\"><script>alert(1)</script>'
 viewstate.nic = "eth0"
+viewstate.nic_pending = true
+viewstate.nic_in_use = "eth1"
 setfenv(fn, setmetatable({
     state = viewstate, token = "test-csrf-token", request_id = id, message = "Saved", error_message = nil,
     logs = '<img src=x onerror="alert(1)">',
@@ -305,6 +307,17 @@ assert(html:find("可用物理口", 1, true) and html:find("其他接口（可�
 assert(html:find('data-optional="1"', 1, true))
 assert(html:find(">eth0 · 物理 · 192.0.2.10/24<", 1, true), "compact interface label")
 assert(html:find('data-detail="eth0 · 物理 · 已连接 · 192.0.2.10/24 · aa:bb:cc:dd:ee:ff"', 1, true))
+assert(html:find("需重新认证后生效", 1, true) and html:find("eth1", 1, true))
+-- A saved interface change stays flagged until the running instance restarts.
+reset(); running = true
+files["/tmp/minieap-sysu-live-777/nic"] = "eth1\n"
+local switched = model.status()
+assert(switched.nic == "eth0" and switched.nic_in_use == "eth1" and switched.nic_pending)
+files["/tmp/minieap-sysu-live-777/nic"] = "eth0\n"
+local applied = model.status()
+assert(applied.nic_in_use == "eth0" and not applied.nic_pending)
+running = false
+
 -- Interface discovery: only standalone physical ports are usable candidates.
 reset()
 ifaces = {

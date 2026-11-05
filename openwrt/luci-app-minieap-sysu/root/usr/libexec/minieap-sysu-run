@@ -4,13 +4,16 @@ umask 077
 session_dir="/tmp/minieap-sysu-live-$$"
 mkdir -p "$session_dir" || exit 1
 chmod 700 "$session_dir"
-rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp"
+rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp" "$session_dir/nic"
 # The configured nic is the single source of truth; fall back to eth0 when absent.
 NIC=$(sed -n 's/^[[:space:]]*nic=//p' /etc/minieap-sysu.conf 2>/dev/null | head -n 1 | tr -d '\r')
 case "$NIC" in
     ""|*[!A-Za-z0-9_.:-]*) NIC=eth0 ;;
 esac
 [ "${#NIC}" -le 15 ] || NIC=eth0
+# Remember what this instance actually uses, so the page can tell a saved change
+# apart from an applied one.
+printf '%s\n' "$NIC" > "$session_dir/nic"
 auth_pid=
 monitor_pid=
 cleanup() {
@@ -18,7 +21,7 @@ cleanup() {
     [ -z "$auth_pid" ] || kill "$auth_pid" 2>/dev/null
     [ -z "$monitor_pid" ] || kill "$monitor_pid" 2>/dev/null
     wait 2>/dev/null
-    rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp"
+    rm -f "$session_dir/output" "$session_dir/state.json" "$session_dir/state.json.tmp" "$session_dir/nic"
     rmdir "$session_dir" 2>/dev/null
 }
 trap cleanup EXIT

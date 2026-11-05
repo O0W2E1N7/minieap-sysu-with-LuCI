@@ -36,6 +36,8 @@ with tempfile.TemporaryDirectory(prefix='minieap-runner-') as directory:
             time.sleep(.05)
         child = int((root / 'child.pid').read_text())
         monitor = int((root / 'monitor.pid').read_text())
+        recorded = list(root.glob('live-*/nic'))
+        assert recorded and recorded[0].read_text().strip() == 'eth0', 'runner records the interface in use'
         proc.terminate()
         output, errors = proc.communicate(timeout=5)
         assert 'synthetic authentication event' in output

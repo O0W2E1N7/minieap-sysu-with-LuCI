@@ -148,6 +148,8 @@ function M.status()
     if result.running then
         result.phase, result.connection_text = "unknown", "等待下一次认证"
         if result.pid then
+            local live_nic = read_trim("/tmp/minieap-sysu-live-" .. result.pid .. "/nic")
+            if live_nic and valid_ifname(live_nic) then result.nic_in_use = live_nic end
             local raw = fs.readfile("/tmp/minieap-sysu-live-" .. result.pid .. "/state.json")
             local live = raw and #raw < 4096 and json.parse(raw)
             if type(live) == "table" then
@@ -161,6 +163,8 @@ function M.status()
         end
     end
     if not result.carrier then result.phase, result.connection_text, result.connected_seconds = "disconnected", "网线未连接", nil end
+    -- A saved interface change only takes effect after the next authentication.
+    if result.nic_in_use and result.nic_in_use ~= result.nic then result.nic_pending = true end
     result.pid = nil
     return result
 end

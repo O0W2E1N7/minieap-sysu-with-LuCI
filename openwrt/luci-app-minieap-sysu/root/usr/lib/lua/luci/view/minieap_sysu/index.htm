@@ -63,6 +63,7 @@
 #campus-page .campus-busy { opacity: .65; cursor: progress; }
 #campus-page .campus-fold-row { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
 #campus-page .campus-nic-all { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: .9em; }
+#campus-page .campus-nic-pending { font-weight: 600; }
 #campus-page [hidden] { display: none !important; }
 </style>
 <% local esc = require("luci.xml").pcdata
@@ -91,6 +92,7 @@
   <fieldset class="cbi-section">
     <legend>网络状态</legend>
     <p>校园网网卡：<span id="campus-nic"><%=esc(state.nic)%></span>　网线连接：<span id="campus-carrier"><%=state.carrier and "已连接" or "未检测到连接"%></span></p>
+    <p id="campus-nic-pending" class="campus-nic-pending"<%=state.nic_pending and '' or ' hidden="hidden"'%>>已切换为 <%=esc(state.nic)%>，需重新认证后生效；当前仍在 <%=esc(state.nic_in_use or "")%> 上认证。</p>
     <p>WAN 地址：<span id="campus-address"><%=esc(state.address ~= "" and state.address or "尚未取得 IPv4 地址")%></span></p>
     <p>WAN 状态：<span id="campus-wan"><%=state.wan_up and "已连接" or "未连接"%></span></p>
 
@@ -353,6 +355,15 @@
         text('carrier', s.carrier ? '已连接' : '未检测到连接');
         text('address', s.address || '尚未取得 IPv4 地址');
         text('wan', s.wan_up ? '已连接' : '未连接');
+        var pendingNic = el('nic-pending');
+        if (pendingNic) {
+          if (s.nic_pending) {
+            pendingNic.textContent = '已切换为 ' + (s.nic || '') + '，需重新认证后生效；当前仍在 ' + (s.nic_in_use || '') + ' 上认证。';
+            pendingNic.hidden = false;
+          } else {
+            pendingNic.hidden = true;
+          }
+        }
         text('state-error', s.error);
         text('log-message', data.logs_message);
         renderLogs(data.logs);
