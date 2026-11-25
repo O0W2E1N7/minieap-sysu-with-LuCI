@@ -46,6 +46,41 @@ local function iface_ipv4(name)
     return out:match("inet%s+([%d%.]+/%d+)")
 end
 
+local function ipv6_status(name)
+    if not sys.exec or not valid_ifname(name) or not stat_ok("/sys/class/net/" .. name) then return nil end
+    local ok, output = pcall(sys.exec, "ip -6 addr show dev " .. name .. " 2>/dev/null")
+    if not ok or type(output) ~= "string" then return nil end
+
+    local global, link = {}, {}
+    for line in output:gmatch("[^\n]+") do
+        local address, scope, flags = line:match("^%s*inet6%s+([%x:.]+/%d+)%s+scope%s+(%a+)(.*)$")
+        if address and not flags:find(" tentative", 1, true) and not flags:find(" dadfailed", 1, true) then
+            if scope == "global" then global[#global + 1] = address end
+            if scope == "link" then link[#link + 1] = address end
+        end
+    end
+
+    local gateways, seen = {}, {}
+    local routes_ok, routes = pcall(sys.exec, "ip -6 route show default dev " .. name .. " 2>/dev/null")
+    if routes_ok and type(routes) == "string" then
+        for line in routes:gmatch("[^\n]+") do
+            if line:match("^default%s") then
+                local gateway = (line .. " "):match("%s+via%s+([%x:.]+)%s") or "直连"
+                if not seen[gateway] then
+                    seen[gateway] = true
+                    gateways[#gateways + 1] = gateway
+                end
+            end
+        end
+    end
+    return {
+        device = name,
+        global = #global > 0 and table.concat(global, "\n") or "尚未取得全局地址",
+        link = #link > 0 and table.concat(link, "\n") or "尚未取得链路本地地址",
+        gateway = #gateways > 0 and table.concat(gateways, "\n") or "未检测到默认路由"
+    }
+end
+
 local function describe_interface(name)
     local base = "/sys/class/net/" .. name
     local carrier_raw = read_trim(base .. "/carrier")
@@ -165,6 +200,7 @@ function M.status()
     if not result.carrier then result.phase, result.connection_text, result.connected_seconds = "disconnected", "网线未连接", nil end
     -- A saved interface change only takes effect after the next authentication.
     if result.nic_in_use and result.nic_in_use ~= result.nic then result.nic_pending = true end
+    result.ipv6 = ipv6_status(result.nic_in_use or result.nic)
     result.pid = nil
     return result
 end

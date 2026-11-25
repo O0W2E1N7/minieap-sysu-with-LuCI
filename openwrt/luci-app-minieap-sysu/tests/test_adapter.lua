@@ -3,7 +3,7 @@ package.path = base .. "/root/usr/lib/lua/?.lua;" .. package.path
 local conf = "/etc/minieap-sysu.conf"
 local initial = "# existing settings\nusername=old-user\npassword=old$!#='\\pass\nnic=eth0\nif-impl=sockraw\ndaemonize=0\npid-file=/var/run/minieap-sysu.pid\n"
 local files, modes, calls, enabled, running = {}, {}, {}, false, false
-local ifaces = {}
+local ifaces, ip_output = {}, {}
 local failwrite, failrename, failrestart, lockbusy = false, false, false, false
 local uptime, unique = 100, 0
 local directories = {}
@@ -98,6 +98,7 @@ end
 package.loaded["nixio.fs"], package.loaded["nixio"] = fs, nx
 package.loaded["luci.sys"], package.loaded["luci.util"] = {
     init = init, uptime = function() return uptime end,
+    exec = function(command) return ip_output[command] or "" end,
     uniqueid = function(n) assert(n == 16); unique = unique + 1; return string.format("%032x", unique) end
 }, util
 -- In-memory JSON stand-in: preserve value-copy behavior without a native dependency.
@@ -118,6 +119,7 @@ local model = require "luci.model.minieap_sysu"
 local function reset()
     files = {[conf] = initial}
     ifaces = {eth0 = {carrier = true, device = true, file_carrier = "1\n"}}
+    ip_output = {}
     modes, calls, enabled, failwrite, failrename = {}, {}, false, false, false
     failrestart, lockbusy, uptime = false, false, 100
 end
@@ -126,6 +128,7 @@ reset()
 local status = model.status()
 assert(status.username == "old-user" and status.password == nil)
 assert(not status.running and status.carrier and status.wan_up)
+assert(status.ipv6.global == "尚未取得全局地址" and status.ipv6.gateway == "未检测到默认路由")
 running = true; assert(model.status().running); running = false
 assert(model.save("old-user", "", true))
 assert(files[conf]:find("password=old$!#='\\pass", 1, true))
@@ -259,7 +262,14 @@ ctrl.action_index(); assert(renders[#renders].message == nil and renders[#render
 assert(model.submit(posted.result, "test-csrf-token", "save", "old-user", "", true))
 assert(#calls == 1, "Consuming a notice must not allow action replay")
 assert(viewstate.username == "old-user" and viewstate.password == nil)
+ip_output["ip -6 addr show dev eth0 2>/dev/null"] = "  inet6 2001:db8::1/64 scope global dynamic\n" ..
+    "  inet6 2001:db8::2/64 scope global temporary\n  inet6 2001:db8::3/64 scope global tentative\n" ..
+    "  inet6 2001:db8::4/64 scope global dadfailed\n  inet6 fe80::2/64 scope link\n"
+ip_output["ip -6 route show default dev eth0 2>/dev/null"] =
+    "default from 2001:db8::/64 via fe80::1 dev eth0 proto static\ndefault via fe80::1 dev eth0 proto ra\n"
 ctrl.action_status(); assert(response_json.state.password == nil and response_json.state.username == nil)
+assert(response_json.state.ipv6.global == "2001:db8::1/64\n2001:db8::2/64")
+assert(response_json.state.ipv6.link == "fe80::2/64" and response_json.state.ipv6.gateway == "fe80::1")
 assert(headers["Cache-Control"] == "no-store" and #calls == 1)
 
 loglines = {}
@@ -287,6 +297,7 @@ viewstate.username = '\"><script>alert(1)</script>'
 viewstate.nic = "eth0"
 viewstate.nic_pending = true
 viewstate.nic_in_use = "eth1"
+viewstate.ipv6 = response_json.state.ipv6
 setfenv(fn, setmetatable({
     state = viewstate, token = "test-csrf-token", request_id = id, message = "Saved", error_message = nil,
     logs = '<img src=x onerror="alert(1)">',
@@ -308,14 +319,20 @@ assert(html:find('data-optional="1"', 1, true))
 assert(html:find(">eth0 · 物理 · 192.0.2.10/24<", 1, true), "compact interface label")
 assert(html:find('data-detail="eth0 · 物理 · 已连接 · 192.0.2.10/24 · aa:bb:cc:dd:ee:ff"', 1, true))
 assert(html:find("需重新认证后生效", 1, true) and html:find("eth1", 1, true))
+assert(html:find("2001:db8::1/64\n2001:db8::2/64", 1, true) and html:find("fe80::1", 1, true))
 -- A saved interface change stays flagged until the running instance restarts.
 reset(); running = true
+ifaces.eth1 = {device = true}
+ip_output["ip -6 addr show dev eth1 2>/dev/null"] = "  inet6 fe80::3/64 scope link\n"
 files["/tmp/minieap-sysu-live-777/nic"] = "eth1\n"
 local switched = model.status()
 assert(switched.nic == "eth0" and switched.nic_in_use == "eth1" and switched.nic_pending)
+assert(switched.ipv6.device == "eth1" and switched.ipv6.link == "fe80::3/64")
+assert(switched.ipv6.global == "尚未取得全局地址")
 files["/tmp/minieap-sysu-live-777/nic"] = "eth0\n"
 local applied = model.status()
 assert(applied.nic_in_use == "eth0" and not applied.nic_pending)
+assert(applied.ipv6.device == "eth0" and applied.ipv6.link == "尚未取得链路本地地址")
 running = false
 
 -- Interface discovery: only standalone physical ports are usable candidates.

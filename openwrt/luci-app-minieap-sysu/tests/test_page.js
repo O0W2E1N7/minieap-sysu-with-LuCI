@@ -27,6 +27,7 @@ function fixture(opts = {}) {
   const ids = ['connection', 'duration', 'success', 'dismiss', 'page', 'running', 'autostart', 'nic', 'carrier', 'address', 'wan', 'state-error',
     'auto', 'refresh', 'refresh-note', 'user', 'password', 'password-help', 'enabled', 'logs', 'log-message', 'operation'];
   if (opts.fold) ids.push('fold');
+  if (opts.ipv6) ids.push('ipv6-device', 'ipv6-global', 'ipv6-link', 'ipv6-gateway');
   const els = Object.fromEntries(ids.map(id => [id, element('campus-' + id)]));
   els.user.value = 'old-user';
   els.auto.checked = true;
@@ -231,4 +232,21 @@ g.els.fold.checked = false;
 g.els.fold.fire('change');
 assert.equal(g.els.logs.textContent, 'a ] x\nb ] x\nc ] y');
 console.log('PASS: notice layout/auto-dismiss/anchor, URL cleanup, submit progress, scroll restore, re-auth fast poll, log folding.');
+
+// Status refresh updates the actual device and clears stale addresses if reading fails.
+g = fixture({ipv6: true});
+g.tick();
+g.requests[0].respond(200, data({state: {running: true, nic: 'eth1', nic_in_use: 'eth0', ipv6: {
+  device: 'eth0', global: '2001:db8::1/64\n2001:db8::2/64', link: 'fe80::2/64', gateway: 'fe80::1'
+}}}));
+assert.equal(g.els['ipv6-device'].textContent, 'eth0');
+assert.equal(g.els['ipv6-global'].textContent, '2001:db8::1/64\n2001:db8::2/64');
+assert.equal(g.els['ipv6-link'].textContent, 'fe80::2/64');
+assert.equal(g.els['ipv6-gateway'].textContent, 'fe80::1');
+g.tick();
+g.requests[1].respond(200, data({state: {running: false, nic: 'eth1'}}));
+assert.equal(g.els['ipv6-device'].textContent, 'eth1');
+assert.equal(g.els['ipv6-global'].textContent, '无法读取');
+assert.equal(g.els['ipv6-gateway'].textContent, '无法读取');
+console.log('PASS: IPv6 status refresh, active interface and missing values.');
 

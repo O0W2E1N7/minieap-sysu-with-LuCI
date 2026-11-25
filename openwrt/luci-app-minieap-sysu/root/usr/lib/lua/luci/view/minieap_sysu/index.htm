@@ -64,13 +64,15 @@
 #campus-page .campus-fold-row { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
 #campus-page .campus-nic-all { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: .9em; }
 #campus-page .campus-nic-pending { font-weight: 600; }
+#campus-page .campus-ipv6-value { white-space: pre-line; overflow-wrap: anywhere; }
 #campus-page [hidden] { display: none !important; }
 </style>
 <% local esc = require("luci.xml").pcdata
+   local ipv6 = state.ipv6 or {}
    local url = require("luci.dispatcher").build_url("admin", "services", "minieap_sysu") %>
 <div class="cbi-map" id="campus-page" data-status-url="<%=url%>/status">
   <h2>校园网认证</h2>
-  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.6.0</div>
+  <div class="cbi-map-descr">中山大学东校园 · 至善园 · MiniEAP · 页面 v1.6.1</div>
   <div id="campus-alerts" class="campus-alerts">
     <% if message then %>
     <div id="campus-success" class="alert-message success campus-alert" role="status" data-autodismiss="6000"><span class="campus-alert-text"><%=esc(message)%></span><a class="campus-alert-link" href="#campus-logs">查看日志 ↓</a><button type="button" class="campus-dismiss" data-dismiss="campus-success" aria-label="关闭提示">×</button></div>
@@ -93,8 +95,12 @@
     <legend>网络状态</legend>
     <p>校园网网卡：<span id="campus-nic"><%=esc(state.nic)%></span>　网线连接：<span id="campus-carrier"><%=state.carrier and "已连接" or "未检测到连接"%></span></p>
     <p id="campus-nic-pending" class="campus-nic-pending"<%=state.nic_pending and '' or ' hidden="hidden"'%>>已切换为 <%=esc(state.nic)%>，需重新认证后生效；当前仍在 <%=esc(state.nic_in_use or "")%> 上认证。</p>
-    <p>WAN 地址：<span id="campus-address"><%=esc(state.address ~= "" and state.address or "尚未取得 IPv4 地址")%></span></p>
+    <p>WAN IPv4 地址：<span id="campus-address"><%=esc(state.address ~= "" and state.address or "尚未取得 IPv4 地址")%></span></p>
     <p>WAN 状态：<span id="campus-wan"><%=state.wan_up and "已连接" or "未连接"%></span></p>
+    <p>IPv6 网卡：<span id="campus-ipv6-device"><%=esc(ipv6.device or state.nic_in_use or state.nic)%></span></p>
+    <p>IPv6 全局地址：<span id="campus-ipv6-global" class="campus-ipv6-value"><%=esc(ipv6.global or "无法读取")%></span></p>
+    <p>IPv6 链路本地地址：<span id="campus-ipv6-link" class="campus-ipv6-value"><%=esc(ipv6.link or "无法读取")%></span></p>
+    <p>IPv6 默认网关：<span id="campus-ipv6-gateway" class="campus-ipv6-value"><%=esc(ipv6.gateway or "无法读取")%></span></p>
 
     <form method="post" action="<%=url%>/update" class="campus-action-form campus-service-actions">
       <input type="hidden" name="token" value="<%=esc(token)%>" />
@@ -355,6 +361,11 @@
         text('carrier', s.carrier ? '已连接' : '未检测到连接');
         text('address', s.address || '尚未取得 IPv4 地址');
         text('wan', s.wan_up ? '已连接' : '未连接');
+        var ipv6 = s.ipv6 || {};
+        if (el('ipv6-device')) text('ipv6-device', ipv6.device || s.nic_in_use || s.nic);
+        if (el('ipv6-global')) text('ipv6-global', ipv6.global || '无法读取');
+        if (el('ipv6-link')) text('ipv6-link', ipv6.link || '无法读取');
+        if (el('ipv6-gateway')) text('ipv6-gateway', ipv6.gateway || '无法读取');
         var pendingNic = el('nic-pending');
         if (pendingNic) {
           if (s.nic_pending) {

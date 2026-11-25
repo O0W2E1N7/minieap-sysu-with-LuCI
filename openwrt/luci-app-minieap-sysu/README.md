@@ -1,10 +1,16 @@
 # 至善园 MiniEAP LuCI 校园网认证页面
 
-版本：1.6.0。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
+版本：1.6.1。为已有的 `minieap-sysu` 服务提供网页管理，适用于中山大学东校园至善园的部署方式。
 这是社区适配页面，并非锐捷、学校或 GL.iNet 官方插件。
 
 v1.4.1 调整当前状态区域的排版：认证按钮间隔为 12px，按钮行与自动刷新行间隔为 20px，
 刷新行内各项间隔为 20px；窄屏自动换行。认证及配置保存逻辑与 v1.4.0 相同。
+
+## v1.6.1 IPv6 状态
+
+- 「网络状态」显示认证网卡的 IPv6 全局地址、链路本地地址和默认网关。多个地址会分行显示，初次打开和自动刷新时都会读取。
+- 如果已保存新网卡但尚未重新认证，IPv6 区域仍显示当前认证实例实际使用的网卡；重新认证成功后随实例切换。
+- IPv6 项读取路由器的接口地址和默认路由，不执行外网探测。全局作用域也可能包含 ULA 地址。
 
 ## v1.6.0 认证网卡选择
 
@@ -67,10 +73,10 @@ v1.6.0 的网卡扫描、分组与切换提示也已在同一设备实机验证�
 
 本目录的安装包只含页面与脚本，不含认证程序。仓库在 v1.5.2 另修了两个认证程序缺陷——
 失败重试定时器未取消导致的 30 秒循环、链接脚本缺少 `KEEP()` 导致的模块注册表被回收——
-并在 Releases 提供按本仓库源码构建的 aarch64 静态二进制 `minieap-sysu-aarch64-v1.6.0`。
+并在 Releases 提供按本仓库源码构建的 aarch64 静态二进制 `minieap-sysu-aarch64-v1.6.1`。
 
 替换 `/usr/sbin/minieap-sysu` 前请先备份；停止服务后等待约 20 秒再启动，让交换机释放旧会话。
-完整步骤、校验值与回退方式见 [luci-v1.6.0 发布说明](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.6.0)。
+完整步骤、校验值与回退方式见 [luci-v1.6.1 发布说明](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.6.1)。
 页面不需要这个二进制也能正常工作，它只修认证程序侧的问题。
 
 ## 与已有 MiniEAP 软件包的区别
@@ -91,8 +97,8 @@ v1.6.0 起可在页面直接选择认证网卡，配置、启动脚本与状态�
 ## 安装页面
 
 两种方式任选其一：直接下载现成安装包，或从源码自行打包。现成包在
-[Releases](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases)，下载
-`minieap-sysu-luci-v1.6.0.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
+[luci-v1.6.1](https://github.com/O0W2E1N7/minieap-sysu-with-LuCI/releases/tag/luci-v1.6.1)，下载
+`minieap-sysu-luci-v1.6.1.tar.gz` 及其同名 `.sha256` 文件后，跳过打包步骤，直接看下文“上传到路由器”（把命令里的路径换成下载的文件名）。
 
 从源码打包（Python 3）：
 
@@ -116,9 +122,9 @@ scp -O openwrt/luci-app-minieap-sysu/dist/minieap-sysu-luci.tar.gz \
 ```sh
 cd /tmp &&
 sha256sum -c minieap-sysu-luci.tar.gz.sha256 &&
-mkdir -p /tmp/minieap-luci-v1.6.0 &&
-tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.6.0 &&
-sh /tmp/minieap-luci-v1.6.0/install.sh
+mkdir -p /tmp/minieap-luci-v1.6.1 &&
+tar -xzf /tmp/minieap-sysu-luci.tar.gz -C /tmp/minieap-luci-v1.6.1 &&
+sh /tmp/minieap-luci-v1.6.1/install.sh
 ```
 
 安装脚本校验包内文件，备份旧版页面与启动脚本，安装页面、连接状态记录模块和启动脚本，并清除 LuCI 临时编译缓存。
@@ -150,7 +156,7 @@ sh /tmp/minieap-luci-v1.6.0/install.sh
 ## 尚未配置服务时
 
 先按仓库根目录说明，为设备编译并验证 MiniEAP 可执行文件——也可以直接使用 Releases 里
-已修复的 `minieap-sysu-aarch64-v1.6.0`。确认网卡配置与上文说明一致，并停止其他认证客户端。
+已修复的 `minieap-sysu-aarch64-v1.6.1`。确认网卡配置与上文说明一致，并停止其他认证客户端。
 下面操作只适用于首次部署，已有可用配置时不要覆盖。
 
 将可执行文件传至 `/tmp/minieap`，将本目录的 `runtime/` 传至 `/tmp/minieap-runtime/`。
